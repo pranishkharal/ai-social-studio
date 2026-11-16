@@ -1,0 +1,37 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Large Media Buffers & Video Clips (Stored locally on D: drive)
+buffer/
+clips/
+edited/
+subtitles/
+chrome_user_data/
+static/mov_inspection/
+*.mp4
+*.ts
+*.ass
+*.m3u8
+*.mp3
+
+# Databases & logs
+*.db
+*.db-journal
+*.log
+server.log
+server_err.log
+
+# Temporary test outputs
+test_*.png
+test_*.mp4
+preview_frame.png
+caption_card.png
+
+# Environment & credentials
+.env
+.venv/
+env/
+venv/
+ENV/

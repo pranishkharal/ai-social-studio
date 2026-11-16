@@ -1,0 +1,1190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Social Studio v1.0 - Commercial Live Stream Clipping & Publishing</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="icon" type="image/x-icon" href="/static/app_icon.ico">
+    <link rel="apple-touch-icon" href="/static/icon-192.png">
+    <meta name="theme-color" content="#53fc18">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #0b0e14; color: #f3f4f6; }
+        .kick-green { color: #53fc18; }
+        .kick-bg { background-color: #53fc18; }
+        .glass-panel { background: rgba(18, 24, 38, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #0f172a; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Top Navigation Bar -->
+    <header class="glass-panel sticky top-0 z-50 border-b border-gray-800 px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-xl bg-black border border-[#53fc18] flex items-center justify-center shadow-[0_0_15px_rgba(83,252,24,0.3)]">
+                <span class="text-xl font-black kick-green">K</span>
+            </div>
+            <div>
+                <h1 class="text-lg font-bold flex items-center space-x-2">
+                    <span>AI Social Studio</span>
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 font-mono">v1.0 Commercial</span>
+                </h1>
+                <p class="text-xs text-gray-400">Continuous Kick Live Watcher • 8-Category AI Scoring • Full-Width Banner Overlay</p>
+            </div>
+        </div>
+
+        <!-- Telemetry, Notifications & Rates Indicator -->
+        <div class="flex items-center space-x-4">
+            
+            <!-- Program Rate Info -->
+            <div class="hidden md:flex items-center space-x-2 bg-emerald-950/60 border border-emerald-800/80 px-3 py-1.5 rounded-lg text-xs">
+                <span class="text-gray-300">Kick Program:</span>
+                <span class="font-bold text-[#53fc18] font-mono">$40/100K • $400/1M</span>
+            </div>
+
+            <!-- Install Web App PWA Button -->
+            <button id="pwa-install-btn" onclick="installPWA()" class="hidden items-center space-x-1.5 bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-[#53fc18] font-bold px-3 py-1.5 rounded-lg text-xs transition shadow">
+                <span>📲</span>
+                <span>Install Web App</span>
+            </button>
+
+            <!-- CPU Telemetry -->
+            <div class="flex items-center space-x-2 bg-gray-900/80 px-3 py-1.5 rounded-lg border border-gray-800 text-xs">
+                <span class="text-gray-400">CPU:</span>
+                <span id="cpu-stat" class="font-bold text-emerald-400 font-mono">--%</span>
+            </div>
+
+            <!-- Live Streamers Count -->
+            <div class="flex items-center space-x-2 bg-gray-900/80 px-3 py-1.5 rounded-lg border border-gray-800 text-xs">
+                <span class="w-2.5 h-2.5 rounded-full bg-[#53fc18] animate-pulse"></span>
+                <span id="active-count" class="text-gray-300 font-medium">0 Live</span>
+            </div>
+
+            <!-- In-App Notification Bell (PRD Section 13) -->
+            <div class="relative">
+                <button onclick="toggleNotifPanel()" class="relative p-2 rounded-xl bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-300 hover:text-white transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                    <span id="notif-badge" class="hidden absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-[10px] font-bold text-white flex items-center justify-center">0</span>
+                </button>
+
+                <!-- Notification Dropdown Panel -->
+                <div id="notif-panel" class="hidden absolute right-0 mt-2 w-80 glass-panel bg-gray-950 border border-gray-800 rounded-2xl shadow-2xl p-4 space-y-3 z-50">
+                    <div class="flex items-center justify-between border-b border-gray-800 pb-2">
+                        <span class="text-xs font-bold uppercase tracking-wider text-white">Notifications</span>
+                        <button onclick="markAllRead()" class="text-[10px] text-emerald-400 hover:underline">Mark all read</button>
+                    </div>
+                    <div id="notif-list" class="max-h-64 overflow-y-auto custom-scroll space-y-2 text-xs">
+                        <div class="text-gray-500 text-center py-4 text-[11px]">No new notifications</div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 p-6 space-y-8 max-w-[1750px] w-full mx-auto">
+
+        <!-- TOP SECTION: LIVE STREAM VIEWER & INSTANT CLIP CONTROLLER -->
+        <div class="grid grid-cols-12 gap-6">
+
+            <!-- Left: Embedded Live Stream Player (8 Cols) -->
+            <div class="col-span-12 lg:col-span-8 space-y-3">
+                <div class="glass-panel rounded-2xl p-4 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <span class="w-3 h-3 rounded-full bg-red-500 animate-ping"></span>
+                            <h2 class="text-sm font-bold uppercase tracking-wider text-white flex items-center space-x-2">
+                                <span>Live Stream Viewport:</span>
+                                <span id="current-streamer-heading" class="text-[#53fc18] font-mono lowercase">adinross</span>
+                            </h2>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button onclick="reloadPlayer()" class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1 rounded-lg border border-gray-700 transition">
+                                🔄 Refresh Player
+                            </button>
+                            <button onclick="openExternalKick()" class="text-xs bg-emerald-950 hover:bg-emerald-900 text-emerald-400 border border-emerald-800 px-3 py-1 rounded-lg transition">
+                                ↗ Open in New Tab
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Direct Embedded Kick Live Player -->
+                    <div class="relative w-full aspect-video rounded-xl overflow-hidden bg-black border border-gray-800 shadow-2xl flex items-center justify-center">
+                        <iframe id="live-stream-player" 
+                                src="https://player.kick.com/adinross?muted=true&autoplay=true" 
+                                class="w-full h-full border-0" 
+                                allowfullscreen 
+                                allow="autoplay; fullscreen">
+                        </iframe>
+                    </div>
+
+                    <div class="flex items-center justify-between text-xs text-gray-400 pt-1">
+                        <span id="player-status-bar" class="flex items-center space-x-1.5">
+                            <span class="w-2 h-2 rounded-full bg-[#53fc18]"></span>
+                            <span>Direct stream playing with 0% screen lag. Click video sound icon to unmute.</span>
+                        </span>
+                        <span class="text-gray-500 font-mono text-[11px]">Powered by Kick IVS Player</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Streamer Switcher & Instant Clipping Station (4 Cols) -->
+            <div class="col-span-12 lg:col-span-4 space-y-4">
+                
+                <!-- Streamer Switcher & Rate Info -->
+                <div class="glass-panel rounded-2xl p-5 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <label class="text-xs font-bold uppercase tracking-wider text-gray-400">Target Live Creator</label>
+                        <span id="live-pill-badge" class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 font-mono">🟢 LIVE</span>
+                    </div>
+
+                    <select id="active-target-streamer" onchange="onStreamerChanged()" class="w-full bg-black/60 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white font-bold focus:outline-none focus:border-[#53fc18]">
+                    </select>
+
+                    <!-- Creator Rate Pill -->
+                    <div id="creator-rate-pill" class="bg-black/50 border border-gray-800 p-3 rounded-xl flex items-center justify-between text-xs">
+                        <span class="text-gray-400">Discord Command: <b id="pill-cmd" class="text-[#53fc18] font-mono">/adinross</b></span>
+                        <span class="text-gray-300">Rate: <b id="pill-rate" class="text-emerald-400 font-mono">$40 / 100K</b></span>
+                    </div>
+
+                    <!-- Fast Instant Clip Buttons (15s, 25s, 35s) -->
+                    <div class="pt-2">
+                        <div class="text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-2">Capture Instant Slice:</div>
+                        <div class="grid grid-cols-3 gap-2">
+                            <button onclick="triggerManualClip(15)" class="bg-gray-800 hover:bg-gray-700 text-xs font-semibold py-3 rounded-xl border border-gray-700 transition flex flex-col items-center">
+                                <span>Fast Hook</span>
+                                <span class="text-[#53fc18] font-bold">15s</span>
+                            </button>
+                            <button onclick="triggerManualClip(25)" class="bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700 text-xs font-semibold py-3 rounded-xl transition flex flex-col items-center shadow-lg">
+                                <span>Sweet Spot</span>
+                                <span class="text-[#53fc18] font-bold">25s (Opt)</span>
+                            </button>
+                            <button onclick="triggerManualClip(35)" class="bg-gray-800 hover:bg-gray-700 text-xs font-semibold py-3 rounded-xl border border-gray-700 transition flex flex-col items-center">
+                                <span>Storyline</span>
+                                <span class="text-[#53fc18] font-bold">35s</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Video Layout & Style Controls (prxno standard) -->
+                <div class="glass-panel rounded-2xl p-4 space-y-3">
+                    <div class="text-xs font-bold uppercase tracking-wider text-gray-400">Layout & Overlay Setup</div>
+                    
+                    <div>
+                        <label class="text-[11px] text-gray-400 block mb-1">Layout Mode</label>
+                        <select id="video-layout-select" class="w-full bg-black/60 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#53fc18]">
+                            <option value="speaker_tracking" selected>🎯 Active Speaker Tracking 9:16 (Auto-Track Talking Person - Recommended)</option>
+                            <option value="blurred_backdrop">🎬 Blurred Backdrop (Full 16:9 Center - No Faces Cut)</option>
+                            <option value="split">📱 Split 9:16 (Facecam Top + Gameplay Bottom)</option>
+                            <option value="center_crop">✂️ Center Crop 9:16</option>
+                        </select>
+                    </div>
+
+                    <div class="bg-black/40 p-2.5 rounded-xl border border-gray-800 space-y-2 text-xs">
+                        <div class="flex items-center justify-between text-gray-300">
+                            <span>🏷️ <b>Overlay:</b></span>
+                            <span class="text-[#53fc18] font-mono">Full-Width Bar (prxno standard)</span>
+                        </div>
+                        <div class="flex items-center justify-between text-gray-300">
+                            <span>💬 <b>Auto-Captions:</b></span>
+                            <span class="text-amber-400 font-mono">OFF (Clean On-Screen Text)</span>
+                        </div>
+                        <label class="flex items-center space-x-2 cursor-pointer text-gray-300 pt-1">
+                            <input type="checkbox" id="toggle-mirror" checked class="rounded border-gray-700 text-[#53fc18] focus:ring-0">
+                            <span>🪞 <b>Mirror Clip</b> (Bypasses unoriginal content strike)</span>
+                        </label>
+                        <label class="flex items-center space-x-2 cursor-pointer text-gray-300">
+                            <input type="checkbox" id="toggle-hdr" checked class="rounded border-gray-700 text-[#53fc18] focus:ring-0">
+                            <span>✨ <b>HDR Sharpness Boost</b> (CapCut 50% trick)</span>
+                        </label>
+                    </div>
+
+                    <!-- Dedicated On-Screen Caption Settings (Top / Bottom / None & Custom Text) -->
+                    <div class="border-t border-gray-800/80 pt-3 space-y-2.5">
+                        <div class="flex items-center justify-between">
+                            <label class="text-xs font-bold uppercase tracking-wider text-gray-300 flex items-center space-x-1.5">
+                                <span>💬 On-Screen Caption</span>
+                                <span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-950 text-[#53fc18] border border-emerald-800 font-mono">DEDICATED</span>
+                            </label>
+                            <span class="text-[10px] text-gray-400 font-mono">Position & Text</span>
+                        </div>
+
+                        <div>
+                            <label class="text-[11px] text-gray-400 block mb-1">Caption Placement</label>
+                            <select id="caption-position-select" class="w-full bg-black/60 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#53fc18]">
+                                <option value="top" selected>🔝 Top of Video (Hook Header - As in screenshot)</option>
+                                <option value="bottom">🔽 Bottom of Video (Stacked above Kick Bar)</option>
+                                <option value="none">🚫 Without Caption (Clean Video - No Text Card)</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="text-[11px] text-gray-400 block mb-1">Custom Caption Text (Optional)</label>
+                            <input type="text" id="custom-caption-input" placeholder="Type custom headline or leave blank for AI hook" 
+                                   class="w-full bg-black/50 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
+                            <div class="text-[10px] text-gray-500 mt-1">If blank, AI Whisper + Gemini automatically creates the headline.</div>
+                        </div>
+                    </div>
+
+                    <!-- Add Streamer Form -->
+                    <form id="add-streamer-form" class="flex gap-2 pt-1">
+                        <input type="text" id="streamer-input" placeholder="Add Kick streamer (e.g. tarik)" 
+                               class="flex-1 bg-black/50 border border-gray-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
+                        <button type="submit" class="bg-[#53fc18] hover:bg-[#46d614] text-black font-bold px-3 py-1.5 rounded-xl text-xs transition">
+                            + Add
+                        </button>
+                    </form>
+                </div>
+
+            </div>
+
+        </div>
+
+        <!-- BOTTOM SECTION: AI GENERATED VERTICAL CLIPS GALLERY & APPROVAL SYSTEM -->
+        <div class="space-y-4">
+            
+            <div class="glass-panel rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
+                <div>
+                    <h2 class="text-lg font-extrabold flex items-center space-x-2">
+                        <span>AI Social Studio Clips</span>
+                        <span class="text-xs px-2.5 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-800">9:16 Vertical</span>
+                    </h2>
+                    <p class="text-xs text-gray-400 mt-0.5">
+                        Human approval workflow (PRD Section 12) • 8 Highlight Categories • Multi-Platform Publishing Ready.
+                    </p>
+                </div>
+
+                <!-- Approval Status Filters & Category Filter -->
+                <div class="flex items-center space-x-2 flex-wrap gap-2">
+                    <div class="flex bg-black/60 p-1 rounded-xl border border-gray-800 text-xs">
+                        <button onclick="setFilter('active')" id="filter-active" class="px-3 py-1.5 rounded-lg font-bold bg-[#53fc18] text-black transition">📋 Active Queue</button>
+                        <button onclick="setFilter('saved')" id="filter-saved" class="px-3 py-1.5 rounded-lg font-medium text-gray-300 hover:text-white transition">⭐ 80+ Auto</button>
+                        <button onclick="setFilter('review')" id="filter-review" class="px-3 py-1.5 rounded-lg font-medium text-gray-300 hover:text-white transition">⏳ Review (60-79)</button>
+                        <button onclick="setFilter('approved')" id="filter-approved" class="px-3 py-1.5 rounded-lg font-medium text-gray-300 hover:text-white transition">✅ Approved</button>
+                        <button onclick="setFilter('rejected')" id="filter-rejected" class="px-3 py-1.5 rounded-lg font-medium text-gray-400 hover:text-red-400 transition">🗑️ Trash</button>
+                    </div>
+
+                    <select id="category-filter-select" onchange="applyFilters()" class="bg-black/60 border border-gray-800 rounded-xl px-3 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-[#53fc18]">
+                        <option value="all">All 8 Categories</option>
+                        <option value="Funny Moments">Funny Moments</option>
+                        <option value="Exciting Gameplay">Exciting Gameplay</option>
+                        <option value="Streamer Reactions">Streamer Reactions</option>
+                        <option value="Unexpected Moments">Unexpected Moments</option>
+                        <option value="Big Wins">Big Wins</option>
+                        <option value="Angry or Emotional Reactions">Angry or Emotional Reactions</option>
+                        <option value="Viral Potential">Viral Potential</option>
+                        <option value="Interesting Conversations">Interesting Conversations</option>
+                    </select>
+
+                    <button onclick="refreshClips()" class="px-3 py-1.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-xs font-semibold text-gray-200 border border-gray-700 transition flex items-center space-x-1.5">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                        <span>Refresh</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Responsive Dynamic Clips Grid -->
+            <div id="clips-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            </div>
+
+        </div>
+
+        <!-- Activity Logs Bar -->
+        <div class="glass-panel rounded-2xl p-4 space-y-2">
+            <div class="flex items-center justify-between">
+                <h3 class="text-xs font-bold uppercase tracking-wider text-gray-400">Activity Logs</h3>
+                <span class="text-[10px] text-gray-500 font-mono">D:\kick-ai-clip-engine</span>
+            </div>
+            <div id="logs-container" class="h-24 overflow-y-auto custom-scroll font-mono text-[11px] space-y-1 text-gray-400 bg-black/40 p-2.5 rounded-xl border border-gray-800">
+                <div>Waiting for logs...</div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Video Preview, Multi-Platform Dispatch & Customer Approval Station Modal -->
+    <div id="video-modal" class="fixed inset-0 bg-black/85 backdrop-blur-md hidden z-50 flex items-center justify-center p-4">
+        <div class="glass-panel bg-gray-950 border border-gray-800 rounded-2xl max-w-4xl w-full p-6 relative flex flex-col md:flex-row gap-6 max-h-[94vh] overflow-y-auto custom-scroll">
+            
+            <button onclick="closeModal()" class="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl font-bold">&times;</button>
+
+            <!-- Video Player (Vertical 9:16) -->
+            <div class="w-full md:w-80 flex-shrink-0 flex justify-center bg-black rounded-xl overflow-hidden border border-gray-800">
+                <video id="modal-video-player" controls autoplay loop class="h-[520px] w-auto max-w-full rounded-xl object-contain"></video>
+            </div>
+
+            <!-- Clip Info & Multi-Platform Publishing Station -->
+            <div class="flex-1 space-y-3">
+                <div class="flex items-center space-x-2 flex-wrap gap-1">
+                    <span id="modal-badge-score" class="text-xs px-2.5 py-0.5 rounded-full font-bold bg-[#53fc18]/20 text-[#53fc18] border border-[#53fc18]/40">AI Score 88/100</span>
+                    <span id="modal-badge-category" class="text-xs px-2.5 py-0.5 rounded-full font-medium bg-purple-950 text-purple-300 border border-purple-800">Streamer Reactions</span>
+                    <span id="modal-badge-approval" class="text-xs px-2 py-0.5 rounded font-mono bg-yellow-950 text-yellow-400 border border-yellow-800">Pending Review</span>
+                </div>
+
+                <!-- Human Customer Approval Controls (PRD Section 12) -->
+                <div class="bg-gray-900 border border-gray-800 p-2.5 rounded-xl flex items-center justify-between text-xs">
+                    <span class="text-gray-300 font-semibold">Customer Approval:</span>
+                    <div class="flex space-x-2">
+                        <button onclick="submitApproval('approved')" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1 rounded-lg transition flex items-center space-x-1">
+                            <span>✅ Approve</span>
+                        </button>
+                        <button onclick="submitApproval('rejected')" class="bg-red-900/60 hover:bg-red-800 text-red-200 px-3 py-1 rounded-lg border border-red-800 transition">
+                            <span>❌ Reject</span>
+                        </button>
+                        <button onclick="deleteFromModal()" class="bg-gray-800 hover:bg-red-950 hover:text-red-300 text-gray-400 px-3 py-1 rounded-lg border border-gray-700 transition">
+                            <span>🗑️ Delete</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- On-Screen Caption Position & Headline Re-render Controls -->
+                <div class="bg-black/50 border border-gray-800 p-2.5 rounded-xl space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label class="text-[11px] font-bold text-gray-300">💬 On-Screen Caption Placement</label>
+                        <span class="text-[10px] text-gray-400 font-mono">1-Click Re-render</span>
+                    </div>
+                    <div class="grid grid-cols-3 gap-1.5">
+                        <button type="button" onclick="selectModalCaptionPos('top')" id="btn-modal-pos-top" class="py-1 px-2 rounded-lg text-xs font-semibold bg-[#53fc18] text-black transition">🔝 Top</button>
+                        <button type="button" onclick="selectModalCaptionPos('bottom')" id="btn-modal-pos-bottom" class="py-1 px-2 rounded-lg text-xs font-semibold bg-gray-800 text-gray-300 transition">🔽 Bottom</button>
+                        <button type="button" onclick="selectModalCaptionPos('none')" id="btn-modal-pos-none" class="py-1 px-2 rounded-lg text-xs font-semibold bg-gray-800 text-gray-300 transition">🚫 None</button>
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-gray-400 block mb-0.5">Caption Headline Text</label>
+                        <input id="modal-title-input" type="text" class="w-full bg-black border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[#53fc18]" placeholder="Type headline or edit hook text">
+                    </div>
+                    <button type="button" onclick="rerenderFromModal()" id="btn-modal-rerender" class="w-full bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-[#53fc18] font-bold py-1.5 px-3 rounded-lg text-xs flex items-center justify-center space-x-1.5 transition shadow">
+                        <span>⚡ Apply & Re-render Video</span>
+                    </button>
+                </div>
+
+                <!-- Discord Bot Command Submission Generator -->
+                <div class="bg-gray-900 border border-gray-700 p-3 rounded-xl space-y-1.5">
+                    <div class="flex items-center justify-between">
+                        <label class="text-[11px] font-bold text-[#53fc18] flex items-center space-x-1">
+                            <span>🤖 Discord Bot Payout Submission</span>
+                        </label>
+                        <span class="text-[10px] text-amber-400 font-mono">⏰ Submit within 12h</span>
+                    </div>
+                    <div class="flex gap-2">
+                        <input id="posted-url-input" oninput="updateDiscordCommand()" type="text" placeholder="Paste your TikTok/Reels/Shorts link here..." 
+                               class="flex-1 bg-black border border-gray-600 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
+                        <button onclick="copyDiscordCommand()" class="bg-[#53fc18] hover:bg-[#46d614] text-black font-bold px-3 py-1.5 rounded-lg text-xs transition">
+                            Copy
+                        </button>
+                    </div>
+                    <div class="text-[11px] font-mono text-gray-400 bg-black/60 p-1.5 rounded border border-gray-800 break-all select-all" id="discord-command-preview">
+                        /adinross &lt;paste link above&gt;
+                    </div>
+                </div>
+
+                <!-- Multi-Platform Metadata Tabs (PRD Section 11) -->
+                <div class="space-y-2">
+                    <div class="flex border-b border-gray-800 text-xs">
+                        <button onclick="switchPlatformTab('tiktok')" id="tab-btn-tiktok" class="pb-1.5 px-3 font-bold text-[#53fc18] border-b-2 border-[#53fc18]">TikTok</button>
+                        <button onclick="switchPlatformTab('youtube')" id="tab-btn-youtube" class="pb-1.5 px-3 font-medium text-gray-400 hover:text-white">YouTube Shorts</button>
+                        <button onclick="switchPlatformTab('instagram')" id="tab-btn-instagram" class="pb-1.5 px-3 font-medium text-gray-400 hover:text-white">Instagram Reels</button>
+                    </div>
+
+                    <!-- TikTok Panel -->
+                    <div id="platform-panel-tiktok" class="space-y-2">
+                        <div class="flex items-center justify-between">
+                            <label class="text-[11px] font-semibold text-gray-400 uppercase">TikTok Caption & Mystery-Baiting</label>
+                            <button onclick="copyCaptionOnly()" class="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-2.5 py-0.5 rounded-lg hover:bg-emerald-900 transition">📋 Copy</button>
+                        </div>
+                        <textarea id="modal-caption-input" rows="2" class="w-full bg-black/60 border border-gray-700 rounded-xl p-2 text-xs text-white"></textarea>
+                    </div>
+
+                    <!-- YouTube Shorts Panel -->
+                    <div id="platform-panel-youtube" class="hidden space-y-2">
+                        <div class="flex items-center justify-between">
+                            <label class="text-[11px] font-semibold text-gray-400 uppercase">YouTube Shorts Title & Description</label>
+                            <button onclick="copyYouTubeMetadata()" class="text-[10px] bg-red-950 text-red-400 border border-red-800 px-2.5 py-0.5 rounded-lg hover:bg-red-900 transition">📋 Copy All</button>
+                        </div>
+                        <input id="modal-yt-title" type="text" class="w-full bg-black/60 border border-gray-700 rounded-xl px-2.5 py-1 text-xs text-white" placeholder="YouTube Shorts Title">
+                        <textarea id="modal-yt-desc" rows="2" class="w-full bg-black/60 border border-gray-700 rounded-xl p-2 text-xs text-white" placeholder="YouTube Shorts Description"></textarea>
+                    </div>
+
+                    <!-- Instagram Reels Panel -->
+                    <div id="platform-panel-instagram" class="hidden space-y-2">
+                        <div class="flex items-center justify-between">
+                            <label class="text-[11px] font-semibold text-gray-400 uppercase">Instagram Reels Caption</label>
+                            <button onclick="copyInstagramCaption()" class="text-[10px] bg-pink-950 text-pink-400 border border-pink-800 px-2.5 py-0.5 rounded-lg hover:bg-pink-900 transition">📋 Copy</button>
+                        </div>
+                        <textarea id="modal-ig-caption" rows="2" class="w-full bg-black/60 border border-gray-700 rounded-xl p-2 text-xs text-white"></textarea>
+                    </div>
+                </div>
+
+                <!-- Blue Comment Embedding -->
+                <div class="bg-blue-950/40 border border-blue-800/60 p-2 rounded-xl">
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="text-[10px] font-bold text-blue-300">💬 Blue Comment (Pin in Comments)</label>
+                        <button onclick="copyBlueComment()" class="text-[10px] bg-blue-900/60 hover:bg-blue-800 text-blue-200 px-2 py-0.5 rounded transition">Copy</button>
+                    </div>
+                    <p id="modal-blue-comment" class="text-xs text-gray-300 font-mono"></p>
+                </div>
+
+                <!-- Action Buttons: 1-Click Upload, Agent Chrome & Download -->
+                <div class="pt-2 border-t border-gray-800 space-y-2">
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="openTikTokWebUpload()" class="bg-[#fe2c55] hover:bg-[#e0264b] text-white font-bold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center space-x-1.5 shadow-lg transition">
+                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.24 1.07-.14 1.61.24 1.64 1.82 2.89 3.48 2.64 1.19-.1 2.22-.84 2.63-1.95.14-.42.2-.87.2-1.32.03-4.5.02-9 .02-13.5z"/></svg>
+                            <span>🚀 1-Click TikTok Upload</span>
+                        </button>
+
+                        <a id="modal-download-btn" href="#" download class="bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 font-semibold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center space-x-1.5 transition">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                            <span>💾 Download MP4</span>
+                        </a>
+                    </div>
+
+                    <button onclick="dispatchTikTokUpload()" id="btn-tiktok-upload" class="w-full bg-gray-900 hover:bg-gray-800 text-gray-300 border border-gray-700 py-2 px-3 rounded-xl text-xs flex items-center justify-center space-x-1.5 transition">
+                        <span>🤖 Auto-Stage via Agent Chrome Profile</span>
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        let currentModalClipId = null;
+        let currentModalStreamer = "adinross";
+        let ratesData = {};
+        let allClipsData = [];
+        let currentFilter = 'active';
+
+        // PWA Installation
+        let deferredPrompt = null;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            const btn = document.getElementById('pwa-install-btn');
+            if (btn) {
+                btn.classList.remove('hidden');
+                btn.classList.add('flex');
+            }
+        });
+
+        async function installPWA() {
+            if (!deferredPrompt) return;
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            if (outcome === 'accepted') {
+                const btn = document.getElementById('pwa-install-btn');
+                if (btn) btn.classList.add('hidden');
+                showToast('AI Social Studio installed to your Windows applications!');
+            }
+            deferredPrompt = null;
+        }
+
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+        }
+
+        function showToast(message) {
+            let toast = document.getElementById('engine-toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'engine-toast';
+                toast.className = 'fixed bottom-6 right-6 z-50 bg-[#121826] border border-[#53fc18] text-white px-4 py-3 rounded-xl shadow-2xl text-xs flex items-center space-x-2 transition-all duration-300';
+                document.body.appendChild(toast);
+            }
+            toast.innerHTML = `<span class="w-2 h-2 rounded-full bg-[#53fc18] animate-pulse"></span><span>${message}</span>`;
+            toast.style.opacity = '1';
+            clearTimeout(window._toastTimer);
+            window._toastTimer = setTimeout(() => { toast.style.opacity = '0'; }, 3500);
+        }
+
+        function toggleNotifPanel() {
+            const panel = document.getElementById('notif-panel');
+            panel.classList.toggle('hidden');
+        }
+
+        async function fetchNotifications() {
+            try {
+                const res = await fetch('/api/notifications');
+                const data = await res.json();
+                const badge = document.getElementById('notif-badge');
+                const list = document.getElementById('notif-list');
+
+                if (data.unread_count > 0) {
+                    badge.innerText = data.unread_count;
+                    badge.classList.remove('hidden');
+                } else {
+                    badge.classList.add('hidden');
+                }
+
+                if (data.notifications.length === 0) {
+                    list.innerHTML = '<div class="text-gray-500 text-center py-4 text-[11px]">No notifications yet</div>';
+                    return;
+                }
+
+                list.innerHTML = data.notifications.map(n => `
+                    <div class="p-2.5 rounded-xl border ${n.is_read ? 'bg-black/20 border-gray-800 text-gray-400' : 'bg-emerald-950/30 border-emerald-800 text-gray-200'} space-y-1 cursor-pointer" onclick="handleNotifClick(${n.id}, ${n.clip_id})">
+                        <div class="font-bold flex items-center justify-between text-[11px]">
+                            <span>${n.title}</span>
+                            <span class="text-[10px] text-gray-500 font-mono">${n.created_at ? n.created_at.slice(11, 16) : ''}</span>
+                        </div>
+                        <div class="text-[11px] text-gray-300">${n.message}</div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function markAllRead() {
+            await fetch('/api/notifications/read_all', {method: 'POST'});
+            fetchNotifications();
+        }
+
+        async function handleNotifClick(notifId, clipId) {
+            await fetch(`/api/notifications/${notifId}/read`, {method: 'POST'});
+            fetchNotifications();
+            if (clipId) {
+                openModal(clipId);
+                toggleNotifPanel();
+            }
+        }
+
+        function onStreamerChanged() {
+            const streamer = document.getElementById('active-target-streamer').value;
+            if (!streamer) return;
+            
+            document.getElementById('current-streamer-heading').innerText = streamer.toLowerCase();
+            updateLivePlayer(streamer);
+            updateRateDisplay();
+        }
+
+        function updateLivePlayer(streamer) {
+            const player = document.getElementById('live-stream-player');
+            player.src = `https://player.kick.com/${streamer.toLowerCase()}?muted=true&autoplay=true`;
+        }
+
+        function reloadPlayer() {
+            const streamer = document.getElementById('active-target-streamer').value || 'adinross';
+            updateLivePlayer(streamer);
+            showToast(`Reloaded player for ${streamer}`);
+        }
+
+        function openExternalKick() {
+            const streamer = document.getElementById('active-target-streamer').value || 'adinross';
+            window.open(`https://kick.com/${streamer}`, '_blank');
+        }
+
+        async function fetchRates() {
+            try {
+                const res = await fetch('/api/creators/rates');
+                ratesData = await res.json();
+                updateRateDisplay();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function updateRateDisplay() {
+            const select = document.getElementById('active-target-streamer');
+            const streamer = select.value ? select.value.toLowerCase() : "other";
+            const info = ratesData[streamer] || {cpm: 40, cmd: `/${streamer}`};
+            document.getElementById('pill-cmd').innerText = info.cmd;
+            document.getElementById('pill-rate').innerText = `$${info.cpm} / 100K`;
+        }
+
+        async function fetchStats() {
+            try {
+                const res = await fetch('/api/stats');
+                const data = await res.json();
+                document.getElementById('cpu-stat').innerText = data.cpu_percent + '%';
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function fetchStreamers() {
+            try {
+                const res = await fetch('/api/streamers');
+                const data = await res.json();
+                const select = document.getElementById('active-target-streamer');
+                
+                const prevVal = select.value;
+                select.innerHTML = '';
+
+                let liveCount = 0;
+
+                data.forEach(s => {
+                    if (s.is_live) liveCount++;
+
+                    const opt = document.createElement('option');
+                    opt.value = s.username;
+                    opt.innerText = `${s.username} ${s.is_live ? '🟢 (' + s.viewer_count.toLocaleString() + ' viewers)' : '⚪ (Offline)'}`;
+                    select.appendChild(opt);
+                });
+
+                if (prevVal && Array.from(select.options).some(o => o.value === prevVal)) {
+                    select.value = prevVal;
+                } else if (select.options.length > 0) {
+                    select.value = select.options[0].value;
+                }
+
+                document.getElementById('active-count').innerText = `${liveCount} Live`;
+                updateRateDisplay();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function setFilter(filterType) {
+            currentFilter = filterType;
+            ['active', 'saved', 'review', 'approved', 'rejected'].forEach(f => {
+                const btn = document.getElementById(`filter-${f}`);
+                if (!btn) return;
+                if (f === filterType) {
+                    btn.className = "px-3 py-1.5 rounded-lg font-bold bg-[#53fc18] text-black transition";
+                } else {
+                    btn.className = "px-3 py-1.5 rounded-lg font-medium text-gray-300 hover:text-white transition";
+                }
+            });
+            renderClips();
+        }
+
+        function applyFilters() {
+            renderClips();
+        }
+
+        async function fetchClips() {
+            try {
+                const res = await fetch('/api/clips');
+                allClipsData = await res.json();
+                renderClips();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function renderClips() {
+            const grid = document.getElementById('clips-grid');
+            grid.innerHTML = '';
+
+            const categoryFilter = document.getElementById('category-filter-select').value;
+
+            const filtered = allClipsData.filter(c => {
+                // Category filtering
+                if (categoryFilter !== 'all' && c.category !== categoryFilter) return false;
+
+                // Status filtering
+                if (currentFilter === 'active') {
+                    // Active Queue: Exclude rejected clips so rejected videos are removed from screen!
+                    return c.approval_status !== 'rejected';
+                }
+                if (currentFilter === 'saved') {
+                    return (c.ai_score || 0) >= 80 && c.approval_status !== 'rejected';
+                }
+                if (currentFilter === 'review') {
+                    return (c.ai_score || 0) < 80 && (c.ai_score || 0) >= 60 && c.approval_status !== 'rejected';
+                }
+                if (currentFilter === 'approved') {
+                    return c.approval_status === 'approved';
+                }
+                if (currentFilter === 'rejected') {
+                    return c.approval_status === 'rejected';
+                }
+
+                return true;
+            });
+
+            if (filtered.length === 0) {
+                grid.innerHTML = `
+                    <div class="col-span-full text-center py-16 glass-panel rounded-2xl">
+                        <div class="text-4xl mb-3">🎬</div>
+                        <div class="text-base font-semibold text-gray-300">No Matching Clips Found</div>
+                        <div class="text-xs text-gray-500 mt-1">Try switching filters or click "Sweet Spot (25s)" to capture live stream highlights!</div>
+                    </div>
+                `;
+                return;
+            }
+
+            filtered.forEach(c => {
+                const card = document.createElement('div');
+                card.id = `clip-card-${c.id}`;
+                card.className = "glass-panel rounded-2xl p-4 flex flex-col justify-between border border-gray-800 hover:border-gray-700 transition space-y-3";
+                
+                const isReady = c.status === 'ready_to_upload' || c.status === 'edited';
+                const videoSrc = isReady ? `/video/${c.id}` : '';
+                const score = c.ai_score || 85;
+                const scoreColor = score >= 80 ? 'text-[#53fc18] bg-emerald-950/60 border-emerald-800' : 'text-amber-400 bg-amber-950/60 border-amber-800';
+
+                card.innerHTML = `
+                    <div class="space-y-2.5">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-bold text-gray-300 flex items-center space-x-1.5">
+                                <span class="w-2 h-2 rounded-full bg-[#53fc18]"></span>
+                                <span class="uppercase font-mono">${c.streamer}</span>
+                            </span>
+                            <span class="text-[10px] font-mono px-2 py-0.5 rounded border ${scoreColor} font-bold">
+                                ⭐ ${score}/100
+                            </span>
+                        </div>
+
+                        <!-- 8 PRD Highlight Category Badge -->
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] px-2 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-800 font-medium">
+                                ${c.category || 'Viral Potential'}
+                            </span>
+                            <span class="text-[10px] px-2 py-0.5 rounded font-mono ${c.approval_status === 'approved' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : c.approval_status === 'rejected' ? 'bg-red-950 text-red-400 border border-red-800' : 'bg-yellow-950 text-yellow-400 border border-yellow-800'}">
+                                ${c.approval_status === 'approved' ? '✅ Approved' : c.approval_status === 'rejected' ? '❌ Rejected' : '⏳ Review'}
+                            </span>
+                        </div>
+
+                        <!-- Video Player Box with Direct Inline Playback -->
+                        <div class="bg-black rounded-xl overflow-hidden aspect-[9/14] flex items-center justify-center relative shadow-lg">
+                            ${isReady ? `
+                                <video id="card-video-${c.id}" 
+                                       src="${videoSrc}" 
+                                       preload="metadata" 
+                                       playsinline 
+                                       controls 
+                                       class="w-full h-full object-cover rounded-xl"></video>
+                            ` : `
+                                <div class="text-center p-4">
+                                    <div class="animate-spin text-2xl mb-1">⏳</div>
+                                    <div class="text-xs text-yellow-400 font-mono">Rendering Vertical Clip...</div>
+                                </div>
+                            `}
+                            ${c.hook_banner ? `
+                                <div class="pointer-events-none absolute top-2 inset-x-2 text-center bg-black/85 text-[10px] font-bold text-white py-1 px-2 rounded border border-gray-800 font-mono tracking-wide shadow">
+                                    ${c.hook_banner}
+                                </div>
+                            ` : ''}
+                        </div>
+
+                        <div>
+                            <h3 class="text-xs font-extrabold text-white line-clamp-2 cursor-pointer hover:text-[#53fc18]" onclick="openModal(${c.id})">${c.title || 'Live Stream Highlight'}</h3>
+                            <p class="text-[11px] text-gray-400 line-clamp-1 mt-0.5">${c.selection_reason || c.story_summary || ''}</p>
+                        </div>
+                    </div>
+
+                    <!-- Approval & Action Station -->
+                    <div class="pt-2 border-t border-gray-800/80 flex items-center justify-between text-xs">
+                        <div class="flex space-x-1.5 items-center">
+                            ${c.approval_status === 'rejected' ? `
+                                <button onclick="restoreDirect(${c.id}, event)" title="Restore clip to Active Queue" class="px-2.5 py-1 rounded bg-blue-950 text-blue-300 hover:bg-blue-900 border border-blue-800 text-[11px] font-semibold transition flex items-center space-x-1">
+                                    <span>↩️ Restore</span>
+                                </button>
+                            ` : `
+                                <button onclick="approveDirect(${c.id}, event)" title="Approve Clip" class="px-2 py-1 rounded ${c.approval_status === 'approved' ? 'bg-emerald-600 text-white font-bold' : 'bg-emerald-950 text-emerald-400 hover:bg-emerald-900'} border border-emerald-800 text-[11px] transition flex items-center space-x-1">
+                                    <span>✅ ${c.approval_status === 'approved' ? 'Approved' : 'Approve'}</span>
+                                </button>
+                                <button onclick="rejectDirect(${c.id}, event)" title="Reject and remove from screen" class="px-2 py-1 rounded bg-red-950 text-red-400 hover:bg-red-900 border border-red-800 text-[11px] font-semibold transition flex items-center space-x-1">
+                                    <span>❌ Reject</span>
+                                </button>
+                            `}
+                            <button onclick="deleteClipDirect(${c.id}, event)" title="Permanently delete clip & MP4 from D: drive" class="p-1.5 rounded bg-gray-900 hover:bg-red-950 hover:text-red-400 text-gray-500 border border-gray-800 transition">
+                                🗑️
+                            </button>
+                        </div>
+                        <button onclick="openModal(${c.id})" class="text-xs font-semibold text-[#53fc18] hover:underline flex items-center space-x-1">
+                            <span>Publish</span>
+                            <span>&rarr;</span>
+                        </button>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        async function approveDirect(clipId, event) {
+            if (event) event.stopPropagation();
+            await fetch(`/api/clips/${clipId}/approve`, {method: 'POST'});
+            const clip = allClipsData.find(x => x.id === clipId);
+            if (clip) clip.approval_status = 'approved';
+            showToast(`Clip #${clipId} Approved!`);
+            renderClips();
+        }
+
+        async function rejectDirect(clipId, event) {
+            if (event) event.stopPropagation();
+            
+            // Immediately animate card out and remove from screen
+            const card = document.getElementById(`clip-card-${clipId}`);
+            if (card) {
+                card.style.transition = "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)";
+                card.style.opacity = "0";
+                card.style.transform = "scale(0.85)";
+                setTimeout(() => {
+                    card.remove();
+                    const grid = document.getElementById('clips-grid');
+                    if (grid && grid.children.length === 0) {
+                        renderClips();
+                    }
+                }, 300);
+            }
+            
+            await fetch(`/api/clips/${clipId}/reject`, {method: 'POST'});
+            
+            const clip = allClipsData.find(x => x.id === clipId);
+            if (clip) clip.approval_status = 'rejected';
+            
+            showToast(`Clip #${clipId} rejected and removed from screen!`);
+        }
+
+        async function restoreDirect(clipId, event) {
+            if (event) event.stopPropagation();
+            await fetch(`/api/clips/${clipId}/restore`, {method: 'POST'});
+            const clip = allClipsData.find(x => x.id === clipId);
+            if (clip) clip.approval_status = 'pending';
+            showToast(`Clip #${clipId} restored to active queue!`);
+            renderClips();
+        }
+
+        async function deleteClipDirect(clipId, event) {
+            if (event) event.stopPropagation();
+            if (!confirm(`Permanently delete Clip #${clipId} and purge the video file from D: drive?`)) return;
+            
+            const card = document.getElementById(`clip-card-${clipId}`);
+            if (card) {
+                card.style.transition = "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)";
+                card.style.opacity = "0";
+                card.style.transform = "scale(0.85)";
+                setTimeout(() => card.remove(), 300);
+            }
+            
+            await fetch(`/api/clips/${clipId}`, {method: 'DELETE'});
+            allClipsData = allClipsData.filter(x => x.id !== clipId);
+            showToast(`Clip #${clipId} permanently deleted from disk.`);
+            setTimeout(renderClips, 350);
+        }
+
+        async function deleteFromModal() {
+            if (!currentModalClipId) return;
+            const clipId = currentModalClipId;
+            if (!confirm(`Permanently delete Clip #${clipId} and purge MP4 from D: drive?`)) return;
+            
+            closeModal();
+            const card = document.getElementById(`clip-card-${clipId}`);
+            if (card) card.remove();
+            
+            await fetch(`/api/clips/${clipId}`, {method: 'DELETE'});
+            allClipsData = allClipsData.filter(x => x.id !== clipId);
+            showToast(`Clip #${clipId} deleted from disk.`);
+            renderClips();
+        }
+
+        async function submitApproval(status) {
+            if (!currentModalClipId) return;
+            const clipId = currentModalClipId;
+            const endpoint = status === 'approved' ? 'approve' : 'reject';
+            await fetch(`/api/clips/${clipId}/${endpoint}`, {method: 'POST'});
+            
+            const clip = allClipsData.find(x => x.id === clipId);
+            if (clip) clip.approval_status = status;
+            
+            if (status === 'rejected') {
+                const card = document.getElementById(`clip-card-${clipId}`);
+                if (card) card.remove();
+                closeModal();
+                showToast(`Clip #${clipId} rejected and removed from screen!`);
+            } else {
+                const appBadge = document.getElementById('modal-badge-approval');
+                if (appBadge) appBadge.innerText = '✅ Approved';
+                showToast(`Clip #${clipId} marked as approved!`);
+            }
+            renderClips();
+        }
+
+        function switchPlatformTab(platform) {
+            ['tiktok', 'youtube', 'instagram'].forEach(p => {
+                const btn = document.getElementById(`tab-btn-${p}`);
+                const panel = document.getElementById(`platform-panel-${p}`);
+                if (p === platform) {
+                    btn.className = "pb-1.5 px-3 font-bold text-[#53fc18] border-b-2 border-[#53fc18]";
+                    panel.classList.remove('hidden');
+                } else {
+                    btn.className = "pb-1.5 px-3 font-medium text-gray-400 hover:text-white";
+                    panel.classList.add('hidden');
+                }
+            });
+        }
+
+        async function triggerManualClip(duration) {
+            const streamer = document.getElementById('active-target-streamer').value;
+            if (!streamer) {
+                showToast('Please select a streamer first!');
+                return;
+            }
+            const mirror = document.getElementById('toggle-mirror').checked;
+            const hdr = document.getElementById('toggle-hdr').checked;
+            const layout = document.getElementById('video-layout-select').value;
+            const captionPos = document.getElementById('caption-position-select').value;
+            const customCaption = document.getElementById('custom-caption-input').value.trim();
+
+            showToast(`Capturing ${duration}s slice for ${streamer}! [Position: ${captionPos.toUpperCase()}]`);
+            await fetch('/api/clips/trigger', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    streamer, 
+                    duration, 
+                    mirror, 
+                    hdr_sharpness: hdr,
+                    layout: layout,
+                    auto_captions: false,
+                    caption_position: captionPos,
+                    custom_caption: customCaption
+                })
+            });
+            setTimeout(fetchClips, 2500);
+        }
+
+        let modalCaptionPos = 'top';
+        function selectModalCaptionPos(pos) {
+            modalCaptionPos = pos;
+            ['top', 'bottom', 'none'].forEach(p => {
+                const btn = document.getElementById(`btn-modal-pos-${p}`);
+                if (!btn) return;
+                if (p === pos) {
+                    btn.className = "py-1 px-2 rounded-lg text-xs font-semibold bg-[#53fc18] text-black transition";
+                } else {
+                    btn.className = "py-1 px-2 rounded-lg text-xs font-semibold bg-gray-800 text-gray-300 transition";
+                }
+            });
+        }
+
+        async function rerenderFromModal() {
+            if (!currentModalClipId) return;
+            const btn = document.getElementById('btn-modal-rerender');
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = `<span>⏳ Re-rendering Clip (${modalCaptionPos.toUpperCase()})...</span>`;
+            btn.disabled = true;
+
+            const text = document.getElementById('modal-title-input').value.trim();
+            const layout = document.getElementById('video-layout-select').value;
+            const mirror = document.getElementById('toggle-mirror').checked;
+            const hdr = document.getElementById('toggle-hdr').checked;
+
+            try {
+                showToast(`Re-rendering Clip #${currentModalClipId} with ${modalCaptionPos.toUpperCase()} caption...`);
+                await fetch(`/api/clips/${currentModalClipId}/rerender`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        caption_position: modalCaptionPos,
+                        custom_caption: text,
+                        layout: layout,
+                        mirror: mirror,
+                        hdr_sharpness: hdr
+                    })
+                });
+
+                // Wait 3.5s for FFmpeg to finish, then reload modal player
+                setTimeout(async () => {
+                    const player = document.getElementById('modal-video-player');
+                    player.src = `/video/${currentModalClipId}?t=${Date.now()}`;
+                    player.load();
+                    player.play().catch(() => {});
+                    btn.innerHTML = originalHtml;
+                    btn.disabled = false;
+                    showToast(`Clip #${currentModalClipId} re-rendered with ${modalCaptionPos.toUpperCase()} caption!`);
+                    fetchClips();
+                }, 3800);
+            } catch (err) {
+                console.error(err);
+                btn.innerHTML = originalHtml;
+                btn.disabled = false;
+                showToast(`Re-render error: ${err.message}`);
+            }
+        }
+
+        async function openModal(clipId) {
+            try {
+                currentModalClipId = clipId;
+                const res = await fetch(`/api/clips/${clipId}`);
+                const clip = await res.json();
+                currentModalStreamer = clip.streamer;
+                selectModalCaptionPos('top');
+
+                const player = document.getElementById('modal-video-player');
+                player.pause();
+                player.src = `/video/${clip.id}`;
+                player.load();
+                
+                const dlBtn = document.getElementById('modal-download-btn');
+                if (dlBtn) dlBtn.href = `/video/${clip.id}`;
+
+                const titleInput = document.getElementById('modal-title-input');
+                if (titleInput) titleInput.value = clip.hook_banner || clip.title || '';
+
+                const captionInput = document.getElementById('modal-caption-input');
+                if (captionInput) captionInput.value = `${clip.caption || ''}\n\n${clip.tags || ''}`.trim();
+
+                const ytTitle = document.getElementById('modal-yt-title');
+                if (ytTitle) ytTitle.value = clip.youtube_title || `${clip.title} #Shorts`;
+
+                const ytDesc = document.getElementById('modal-yt-desc');
+                if (ytDesc) ytDesc.value = clip.youtube_description || `${clip.title} on Kick. Subscribe for more! ${clip.tags || ''}`;
+
+                const igCaption = document.getElementById('modal-ig-caption');
+                if (igCaption) igCaption.value = clip.instagram_caption || `${clip.title} 😳 ${clip.tags || ''}`;
+
+                const blueComment = document.getElementById('modal-blue-comment');
+                if (blueComment) blueComment.innerText = clip.blue_comment || 'Who else noticed this moment? Let me know in the comments 👇';
+                
+                const scoreBadge = document.getElementById('modal-badge-score');
+                if (scoreBadge) scoreBadge.innerText = `⭐ AI Score ${clip.ai_score || 85}/100`;
+
+                const catBadge = document.getElementById('modal-badge-category');
+                if (catBadge) catBadge.innerText = clip.category || 'Viral Potential';
+
+                const appBadge = document.getElementById('modal-badge-approval');
+                if (appBadge) appBadge.innerText = clip.approval_status === 'approved' ? '✅ Approved' : clip.approval_status === 'rejected' ? '❌ Rejected' : '⏳ Pending Review';
+
+                updateDiscordCommand();
+                document.getElementById('video-modal').classList.remove('hidden');
+                
+                player.play().catch(e => {
+                    console.log("Autoplay paused, user can click play:", e);
+                });
+            } catch (err) {
+                console.error("Error opening modal:", err);
+                showToast("Error opening clip details: " + err.message);
+            }
+        }
+
+        function updateDiscordCommand() {
+            const postedUrl = document.getElementById('posted-url-input').value.trim();
+            const info = ratesData[currentModalStreamer.toLowerCase()] || {cmd: `/${currentModalStreamer.toLowerCase()}`};
+            const cmd = info.cmd;
+            const text = postedUrl ? `${cmd} ${postedUrl}` : `${cmd} <PASTE_LINK_HERE>`;
+            document.getElementById('discord-command-preview').innerText = text;
+        }
+
+        function copyDiscordCommand() {
+            const text = document.getElementById('discord-command-preview').innerText;
+            navigator.clipboard.writeText(text);
+            showToast(`Discord command copied: ${text} (Submit within 12h!)`);
+        }
+
+        function copyBlueComment() {
+            const text = document.getElementById('modal-blue-comment').innerText;
+            navigator.clipboard.writeText(text);
+            showToast('Blue Comment copied! Pin this in your comments.');
+        }
+
+        function copyCaptionOnly() {
+            const caption = document.getElementById('modal-caption-input').value;
+            navigator.clipboard.writeText(caption);
+            showToast('TikTok caption & tags copied!');
+        }
+
+        function copyYouTubeMetadata() {
+            const title = document.getElementById('modal-yt-title').value;
+            const desc = document.getElementById('modal-yt-desc').value;
+            navigator.clipboard.writeText(`TITLE:\n${title}\n\nDESCRIPTION:\n${desc}`);
+            showToast('YouTube Shorts metadata copied!');
+        }
+
+        function copyInstagramCaption() {
+            const caption = document.getElementById('modal-ig-caption').value;
+            navigator.clipboard.writeText(caption);
+            showToast('Instagram Reels caption copied!');
+        }
+
+        function openTikTokWebUpload() {
+            const caption = document.getElementById('modal-caption-input').value;
+            navigator.clipboard.writeText(caption);
+            showToast('Caption copied! Opening TikTok Studio in your browser...');
+            window.open('https://www.tiktok.com/tiktokstudio/upload', '_blank');
+        }
+
+        function closeModal() {
+            const player = document.getElementById('modal-video-player');
+            player.pause();
+            player.src = '';
+            document.getElementById('video-modal').classList.add('hidden');
+        }
+
+        async function dispatchTikTokUpload() {
+            if (!currentModalClipId) return;
+            const btn = document.getElementById('btn-tiktok-upload');
+            btn.innerText = 'Opening Chrome...';
+            btn.disabled = true;
+
+            const fullCaption = document.getElementById('modal-caption-input').value;
+
+            try {
+                const res = await fetch(`/api/clips/${currentModalClipId}/upload`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({caption: fullCaption})
+                });
+                const result = await res.json();
+                showToast(result.message || 'Launched TikTok Studio in Chrome!');
+            } catch (e) {
+                showToast('Upload trigger failed: ' + e);
+            } finally {
+                btn.innerText = 'Auto-Stage via Agent Chrome Profile';
+                btn.disabled = false;
+            }
+        }
+
+        async function fetchLogs() {
+            try {
+                const res = await fetch('/api/logs');
+                const data = await res.json();
+                const container = document.getElementById('logs-container');
+                container.innerHTML = data.map(l => `
+                    <div class="flex space-x-2">
+                        <span class="text-gray-500">[${l.created_at ? l.created_at.slice(11, 19) : ''}]</span>
+                        <span class="${l.level === 'ERROR' ? 'text-red-400' : l.level === 'WARNING' ? 'text-yellow-400' : 'text-emerald-400'}">[${l.source}]</span>
+                        <span class="text-gray-300">${l.message}</span>
+                    </div>
+                `).join('');
+                container.scrollTop = container.scrollHeight;
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        document.getElementById('add-streamer-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const input = document.getElementById('streamer-input');
+            const username = input.value.trim();
+            if (!username) return;
+            await fetch('/api/streamers', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username})
+            });
+            input.value = '';
+            fetchStreamers();
+            showToast(`Added ${username} to watchlist!`);
+        };
+
+        function refreshClips() {
+            fetchClips();
+            fetchNotifications();
+            fetchLogs();
+            showToast('Clips & Notifications refreshed!');
+        }
+
+        // Init
+        fetchRates();
+        fetchStats();
+        fetchStreamers();
+        fetchClips();
+        fetchNotifications();
+        fetchLogs();
+
+        setInterval(fetchStats, 3000);
+        setInterval(fetchStreamers, 10000);
+        setInterval(fetchNotifications, 5000);
+        setInterval(fetchClips, 8000);
+        setInterval(fetchLogs, 5000);
+    </script>
+</body>
+</html>

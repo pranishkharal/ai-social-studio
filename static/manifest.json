@@ -1,0 +1,24 @@
+{
+  "name": "AI Social Studio v1.0",
+  "short_name": "SocialStudio",
+  "description": "Continuous Kick Live Stream Clipping, AI Scoring & Social Media Publishing Platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0e14",
+  "theme_color": "#53fc18",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/static/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
