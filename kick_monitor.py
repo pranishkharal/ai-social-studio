@@ -17,9 +17,10 @@ from database import update_streamer_status, log_event, add_notification
 
 class KickMonitor:
     def __init__(self):
+        # Verified TLS: kick.com serves a valid public certificate, so there
+        # is no reason to disable verification (previously CERT_NONE, which
+        # left API calls open to interception). See Tier 1 feature 15 notes.
         self.ssl_ctx = ssl.create_default_context()
-        self.ssl_ctx.check_hostname = False
-        self.ssl_ctx.verify_mode = ssl.CERT_NONE
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "Accept": "application/json",
@@ -118,6 +119,70 @@ class KickMonitor:
                 proc.terminate()
                 log_event("INFO", "KickMonitor", f"Stopped recorder for {username}")
 
+    def list_buffer_chunks(self, username: str):
+        """
+        Returns the rolling-buffer chunk files for a streamer, newest first
+        (sorted by modification time, descending). Used by the auto-clip
+        watcher to sample the latest audio. Returns [] when there is no
+        buffer directory for the streamer.
+        """
+        streamer_buf_dir = BUFFER_DIR / username
+        if not streamer_buf_dir.exists():
+            return []
+        return sorted(
+            streamer_buf_dir.glob("chunk_*.ts"),
+            key=os.path.getmtime,
+            reverse=True,
+        )
+
+    def handle_stream_started(self, username: str):
+        """
+        Webhook hook (kick_webhooks.py): a livestream.status.updated event
+        said this streamer went live. Re-fetch channel info (to confirm and
+        get a fresh playback URL) and start the rolling buffer. Idempotent:
+        safe to call when the stream is already being recorded, and a no-op
+        when the API disagrees that the stream is live. Returns True when
+        recording is (now) active.
+        """
+        username = username.strip().lower()
+        info = self.fetch_channel_info(username)
+        if not info.get("is_live"):
+            log_event("INFO", "KickMonitor",
+                      f"Webhook said {username} is live but the API disagrees; ignoring")
+            return False
+        if username not in self.known_live:
+            self.known_live.add(username)
+            add_notification(
+                title=f"🔴 {username} is now LIVE on Kick!",
+                message=f"Broadcasting '{info.get('title', '')}' in {info.get('category', 'Gaming')} with {info.get('viewer_count', 0):,} viewers.",
+                notif_type="channel_live",
+                streamer=username
+            )
+            # External alert (Tier 4): Discord/Telegram, best-effort —
+            # an alert failure must never break live detection.
+            try:
+                from alerts import alert_streamer_live
+                alert_streamer_live(username, info.get("title", ""),
+                                    info.get("viewer_count", 0))
+            except Exception:
+                pass
+        self.start_rolling_buffer(username, info.get("playback_url"))
+        return True
+
+    def handle_stream_ended(self, username: str):
+        """
+        Webhook hook (kick_webhooks.py): a livestream.status.updated event
+        said this streamer went offline. Stops the rolling buffer and clears
+        live state. Idempotent. Returns True.
+        """
+        username = username.strip().lower()
+        if username in self.known_live:
+            self.known_live.remove(username)
+        self.stop_recorder(username)
+        log_event("INFO", "KickMonitor",
+                  f"Webhook: {username} went offline, recorder stopped")
+        return True
+
     def extract_recent_clip(self, username: str, duration_seconds: int = 45) -> str:
         """
         Extracts the most recent footage directly from live stream or rolling buffer.
@@ -189,6 +254,14 @@ class KickMonitor:
                             notif_type="channel_live",
                             streamer=username
                         )
+                        # External alert (Tier 4): Discord/Telegram,
+                        # best-effort — never breaks live detection.
+                        try:
+                            from alerts import alert_streamer_live
+                            alert_streamer_live(username, info.get("title", ""),
+                                                info.get("viewer_count", 0))
+                        except Exception:
+                            pass
                     # Streamer is live! Ensure rolling buffer is active
                     self.start_rolling_buffer(username, info.get("playback_url"))
                 else:
