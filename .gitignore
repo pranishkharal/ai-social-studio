@@ -35,3 +35,12 @@ caption_card.png
 env/
 venv/
 ENV/
+
+# OAuth / API credentials (Tier 2 uploaders)
+token.json
+client_secrets.json
+
+# Runtime-generated state (Tiers 3-4)
+checkpoints/
+face_references/
+overlays/

@@ -16,7 +16,8 @@ def render_preview():
     draw.text((100, 1195), "[KICK PIXEL LOGO]   KICK.COM/ADINROSS", fill=(83, 252, 24, 255))
     
     # 3. White On-Screen Caption Card at y = 1290 to 1480
-    font = ImageFont.truetype("C:/Windows/Fonts/arialbd.ttf", 38)
+    from platform_utils import load_font
+    font = load_font(38, bold=True)
     text = "Adin Ross was SHOCKED after Ryan Garcia just ANNOUNCED that he's F1GHTING Boxing Champ Floyd Mayweather"
     
     words = text.split()
@@ -61,7 +62,9 @@ def render_preview():
         draw.ellipse([940, icon_y, 1010, icon_y + 70], fill=(50, 50, 50, 200))
         draw.text((965, icon_y + 25), "♥", fill=(255, 255, 255, 255))
         
-    img.save("D:/kick-ai-clip-engine/test_safe_zone_preview.png")
+    from pathlib import Path
+    out_path = Path(__file__).resolve().parent / "test_safe_zone_preview.png"
+    img.save(out_path)
     print(f"Safe zone preview rendered: box_y={box_y}, box_h={box_h}, bottom={box_y+box_h}")
 
 if __name__ == "__main__":

@@ -1,6 +1,16 @@
 import json
+import os
+import sys
+from pathlib import Path
 
-log_path = r'C:\Users\MSI\.gemini\antigravity\brain\69f96515-da9d-4411-be11-cb7576b6448a\.system_generated\tasks\task-345.log'
+# One-off analysis script: parse a saved task log for @prestigeclipn video
+# metadata. The log path comes from the first CLI argument or the
+# PRESTIGE_LOG_PATH env var — there is no machine-specific default.
+log_path = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("PRESTIGE_LOG_PATH", "")
+if not log_path:
+    print("Usage: python parse_prestige_videos.py <path-to-task-log>")
+    print("   or set PRESTIGE_LOG_PATH to the log file path.")
+    sys.exit(1)
 
 with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
     lines = f.readlines()
@@ -36,5 +46,6 @@ for idx, v in enumerate(videos, 1):
     print(f"Audio Track: {v['track']} by {v['artist']}")
     print(f"Link: https://www.tiktok.com/@prestigeclipn/video/{v['id']}")
 
-with open(r'D:\kick-ai-clip-engine\prestige_analysis.json', 'w', encoding='utf-8') as f:
+out_path = Path(__file__).resolve().parent / "prestige_analysis.json"
+with open(out_path, 'w', encoding='utf-8') as f:
     json.dump(videos, f, indent=2)

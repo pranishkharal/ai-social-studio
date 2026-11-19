@@ -97,6 +97,7 @@ def init_db():
     ensure_column("clips", "youtube_title", "TEXT")
     ensure_column("clips", "youtube_description", "TEXT")
     ensure_column("clips", "instagram_caption", "TEXT")
+    ensure_column("clips", "detected_streamers", "TEXT")
     ensure_column("streamers", "monitoring_enabled", "INTEGER DEFAULT 1")
     ensure_column("streamers", "monitoring_mode", "TEXT DEFAULT 'all'")
 
@@ -142,12 +143,13 @@ def add_clip(clip_data: dict) -> int:
     conn.close()
     return clip_id
 
-def update_clip_status(clip_id: int, status: str, edited_path: str = None, title: str = None, 
-                       caption: str = None, tags: str = None, hook_banner: str = None, 
-                       story_summary: str = None, blue_comment: str = None, category: str = None, 
+def update_clip_status(clip_id: int, status: str, edited_path: str = None, title: str = None,
+                       caption: str = None, tags: str = None, hook_banner: str = None,
+                       story_summary: str = None, blue_comment: str = None, category: str = None,
                        ai_score: int = None, selection_reason: str = None,
-                       youtube_title: str = None, youtube_description: str = None, 
-                       instagram_caption: str = None, approval_status: str = None):
+                       youtube_title: str = None, youtube_description: str = None,
+                       instagram_caption: str = None, approval_status: str = None,
+                       detected_streamers: str = None):
     conn = get_connection()
     updates = ["status = ?"]
     params = [status]
@@ -194,6 +196,9 @@ def update_clip_status(clip_id: int, status: str, edited_path: str = None, title
     if approval_status:
         updates.append("approval_status = ?")
         params.append(approval_status)
+    if detected_streamers:
+        updates.append("detected_streamers = ?")
+        params.append(detected_streamers)
         
     params.append(clip_id)
     query = f"UPDATE clips SET {', '.join(updates)} WHERE id = ?"

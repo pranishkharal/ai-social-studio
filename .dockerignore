@@ -1,0 +1,16 @@
+# Keep the Docker build context small and secret-free.
+.git
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+.env
+*.db
+buffer/
+clips/
+edited/
+subtitles/
+checkpoints/
+chrome_user_data/
+.github/

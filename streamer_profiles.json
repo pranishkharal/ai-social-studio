@@ -1,0 +1,59 @@
+{
+  "default": {
+    "auto_clip_enabled": true,
+    "caption_style": "prestige",
+    "clip_seconds": 45,
+    "hype_db_threshold": -15.0,
+    "layout": "blurred_backdrop",
+    "platforms": [
+      "tiktok",
+      "youtube",
+      "instagram"
+    ]
+  },
+  "xqc": {
+    "auto_clip_enabled": true,
+    "caption_style": "prestige",
+    "clip_seconds": 30,
+    "hype_db_threshold": -18.0,
+    "layout": "speaker_tracking",
+    "platforms": [
+      "tiktok",
+      "youtube"
+    ]
+  },
+  "adinross": {
+    "auto_clip_enabled": true,
+    "caption_style": "prestige",
+    "clip_seconds": 45,
+    "hype_db_threshold": -15.0,
+    "layout": "blurred_backdrop",
+    "platforms": [
+      "tiktok",
+      "youtube",
+      "instagram"
+    ]
+  },
+  "westcol": {
+    "auto_clip_enabled": true,
+    "caption_style": "prestige",
+    "clip_seconds": 60,
+    "hype_db_threshold": -16.0,
+    "layout": "split",
+    "platforms": [
+      "tiktok",
+      "instagram"
+    ]
+  },
+  "tarik": {
+    "auto_clip_enabled": true,
+    "caption_style": "prestige",
+    "clip_seconds": 30,
+    "hype_db_threshold": -14.0,
+    "layout": "speaker_tracking",
+    "platforms": [
+      "tiktok",
+      "youtube"
+    ]
+  }
+}

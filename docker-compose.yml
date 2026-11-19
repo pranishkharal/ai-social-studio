@@ -1,0 +1,28 @@
+# ai-social-studio — run the Kick live-clip engine 24/7 on a VPS.
+#
+#   cp .env.example .env   # fill in GEMINI_API_KEY (and alert/auth vars)
+#   touch kick_engine.db   # IMPORTANT: the file must exist before the first
+#                          # `docker compose up`, otherwise Docker creates a
+#                          # *directory* named kick_engine.db and SQLite fails.
+#   docker compose up -d --build
+#
+# Dashboard: http://<vps-ip>:8500  (set DASHBOARD_PASSWORD before exposing it!)
+
+services:
+  app:
+    build: .
+    container_name: ai-social-studio
+    ports:
+      - "8500:8500"
+    volumes:
+      - ./buffer:/app/buffer
+      - ./clips:/app/clips
+      - ./edited:/app/edited
+      - ./subtitles:/app/subtitles
+      - ./kick_engine.db:/app/kick_engine.db
+      # Uncomment to keep the Playwright browser profile across restarts
+      # (only useful with the chromium install enabled in the Dockerfile):
+      # - ./chrome_user_data:/app/chrome_user_data
+    env_file:
+      - .env
+    restart: unless-stopped

@@ -1,8 +1,10 @@
-import os
-from PIL import Image, ImageDraw, ImageFont
+from pathlib import Path
 
-static_dir = "D:/kick-ai-clip-engine/static"
-os.makedirs(static_dir, exist_ok=True)
+from PIL import Image, ImageDraw, ImageFont
+from platform_utils import load_font
+
+static_dir = Path(__file__).resolve().parent / "static"
+static_dir.mkdir(parents=True, exist_ok=True)
 
 # Generate 512x512 icon
 size = 512
@@ -26,12 +28,9 @@ draw.rounded_rectangle(
     fill=(0, 0, 0, 255)
 )
 
-# Draw bold Kick "K"
-font_path = "C:/Windows/Fonts/impact.ttf"
-if not os.path.exists(font_path):
-    font_path = "C:/Windows/Fonts/arialbd.ttf"
-
-font = ImageFont.truetype(font_path, 320)
+# Draw bold Kick "K" (cross-platform font lookup; falls back to Pillow's
+# built-in default when no bold font is installed)
+font = load_font(320, bold=True)
 bbox = draw.textbbox((0, 0), "K", font=font)
 text_w = bbox[2] - bbox[0]
 text_h = bbox[3] - bbox[1]
@@ -44,16 +43,16 @@ draw.text((x + 6, y + 6), "K", font=font, fill=(30, 100, 10, 255))
 draw.text((x, y), "K", font=font, fill=(83, 252, 24, 255))
 
 # Save 512x512
-icon512_path = os.path.join(static_dir, "icon-512.png")
+icon512_path = static_dir / "icon-512.png"
 img.save(icon512_path, "PNG")
 
 # Save 192x192
-icon192_path = os.path.join(static_dir, "icon-192.png")
+icon192_path = static_dir / "icon-192.png"
 img192 = img.resize((192, 192), Image.Resampling.LANCZOS)
 img192.save(icon192_path, "PNG")
 
-# Save Windows .ICO with multiple sizes
-ico_path = os.path.join(static_dir, "app_icon.ico")
+# Save .ICO with multiple sizes (Windows icon, also used as favicon)
+ico_path = static_dir / "app_icon.ico"
 img.save(ico_path, format="ICO", sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
 
 print(f"Generated icons: {icon512_path}, {icon192_path}, {ico_path}")
