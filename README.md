@@ -42,19 +42,19 @@ you opt in via `.env`. See [CHANGELOG.md](CHANGELOG.md) for the full list.
 **Cross-platform + Android phone**
 - Runs on **Windows, macOS and Linux** (same code, `platform_utils.py` handles fonts/paths per OS) — `start.sh` for Mac/Linux, `start.bat`/`start_engine.bat` for Windows, Docker unchanged. The dashboard is **phone-friendly**: open it from your Android browser on the same Wi-Fi (`--host 0.0.0.0`, see below).
 
-## ⚡ क्यों यह आपके PC पर बिल्कुल "हल्का" (Lightweight) है?
+## ⚡ Why is it so "lightweight" on your PC?
 
-| Approach | Traditional Screen Capture (भारी / Heavy) | Kick AI Clip Engine (अल्ट्रा-लाइटवेट / Lightweight) |
+| Approach | Traditional Screen Capture (Heavy) | Kick AI Clip Engine (Ultra-Lightweight) |
 | :--- | :--- | :--- |
-| **तरीका** | 24/7 ब्राउज़र और OBS/स्क्रीन रिकॉर्डर खुला रखना | **Direct Headless Ingestion**: Kick API + AWS IVS `.m3u8` स्ट्रीम-कॉपी |
-| **CPU/GPU लोड** | **60% - 90%** (भारी पंखे, लैग) | **< 1% CPU** (स्ट्रीम कॉपी में कोई वीडियो री-एनकोडिंग नहीं होती) |
-| **स्क्रीन की पाबंदी**| स्क्रीन हमेशा खुली रखनी पड़ती है, मिनिमाइज़ नहीं कर सकते | **0% स्क्रीन डिस्टर्बेंस** (बैकग्राउंड में शांति से चलता है) |
-| **क्वालिटी** | स्क्रीन रेजोल्यूशन पर निर्भर, लैग और फ्रेम ड्रॉप्स | **क्रिस्टल क्लियर 1080p 60fps** डायरेक्ट सोर्स वीडियो |
-| **AI डिटेक्शन** | पूरे 6 घंटे का भारी वीडियो फ्रेम-बाय-फ्रेम प्रोसेस करना | **स्मार्ट इवेंट ट्रिगर्स**: ऑडियो डेसिबल पीक (चीखना/हंसना) + चैट स्पाइक्स |
+| **Method** | Keep a browser and OBS/screen recorder open 24/7 | **Direct Headless Ingestion**: Kick API + AWS IVS `.m3u8` stream-copy |
+| **CPU/GPU load** | **60% - 90%** (loud fans, lag) | **< 1% CPU** (stream copy involves no video re-encoding) |
+| **Screen restriction** | Screen must stay open all the time, can't minimise | **0% screen disturbance** (runs quietly in the background) |
+| **Quality** | Depends on screen resolution, lag and frame drops | **Crystal-clear 1080p 60fps** direct source video |
+| **AI detection** | Process a full 6 hours of heavy video frame-by-frame | **Smart event triggers**: audio decibel peaks (screaming/laughing) + chat spikes |
 
 ---
 
-## 🏗️ सिस्टम आर्किटेक्चर (System Architecture)
+## 🏗️ System Architecture
 
 ```mermaid
 flowchart TD
@@ -74,133 +74,133 @@ flowchart TD
 
 ---
 
-## 📂 प्रोजेक्ट फ़ाइल स्ट्रक्चर
+## 📂 Project File Structure
 
-- `main.py`: मास्टर रनर जो डैशबोर्ड और बैकग्राउंड मॉनिटर को 1-क्लिक में शुरू करता है।
-- `kick_monitor.py`: बिना किसी ब्राउज़र लोड के लाइव स्ट्रीम का पता लगाता है और 10-मिनट का रोलिंग बफ़र मेंटेन करता है।
-- `hype_detector.py`: स्ट्रीम के ऑडियो वॉल्यूम स्पाइक्स (सक्रीम्स, लाफ्टर, हाइप) को 0.2 सेकंड में मापता है।
-- `ai_story_engine.py`: Google Gemini और लोकल Whisper का इस्तेमाल करके क्लिप की पूरी स्टोरी, पंचलाइन, वायरल टाइटल, हुक बैनर और कैप्शंस निकालता है।
-- `clip_editor.py`: 16:9 हॉरिजॉन्टल वीडियो को 9:16 वर्टिकल टिकटॉक फॉर्मैट में बदलता है, एनिमेटेड वर्ड-बाय-वर्ड सबटाइटल्स और टॉप बैनर लगाता है।
-- `screen_controller.py`: प्लेराइट (Playwright) बेस्ड स्क्रीन/ब्राउज़र एजेंट जो किक प्लेयर को आगे-पीछे (Scrub) कर सकता है और टिकटॉक पर ऑटो-अपलोड कर सकता है।
-- `web_dashboard.py`: लोकल फास्टएपीआई (FastAPI) वेब कंट्रोल सेंटर (`http://localhost:8500`)।
-- `database.py`: सभी स्ट्रीमर्स, डिटेक्टेड क्लिप्स और सिस्टम लॉग्स को स्टोर करने वाला SQLite डेटाबेस।
-- `config.py`: सिस्टम की केंद्रीय सेटिंग्स।
-- `auto_clip_watcher.py` (Tier 1): बैकग्राउंड थ्रेड जो हाइप मोमेंट्स पर अपने आप क्लिप बनाता है।
-- `chat_hype.py` (Tier 1): Kick चैट (Pusher websocket) से लाइव हाइप स्कोर।
-- `kick_webhooks.py` (Tier 1): Kick webhook receiver + subscription helper (instant live detection)।
-- `clip_dedup.py` (Tier 1): क्लिप कूलडाउन और डुप्लिकेट प्रोटेक्शन।
-- `youtube_uploader.py` / `instagram_uploader.py` (Tier 2): YouTube Shorts और Instagram Reels अपलोडर।
-- `upload_scheduler.py` (Tier 2): स्पेस्ड, कैप्ड, रीट्राई करने वाली अपलोड क्यू।
-- `earnings.py` / `analytics.py` / `dashboard_routers.py` (Tier 2): Kick प्रोग्राम अर्निंग्स, परफॉर्मेंस फीडबैक और उनके API रूट्स।
-- `silence_cutter.py` / `thumbnail.py` / `streamer_profiles.py` / `streamer_detection.py` (Tier 3): डेड-स्पेस कटिंग, ऑटो-थंबनेल, पर-स्ट्रीमर प्रोफाइल, मल्टी-स्ट्रीमर डिटेक्शन।
-- `auth.py` / `alerts.py` / `retry_utils.py` (Tier 4): डैशबोर्ड लॉगिन, Discord/Telegram अलर्ट्स, रीट्राई + चेकपॉइंट resume।
-- `karaoke_subtitles.py` / `render_modes.py` / `broll.py` / `bgm.py` / `encoder.py` / `llm_providers.py` (Tier 5): किनेटिक कराओके सबटाइटल्स, कैमरा-स्विच/स्प्लिट-स्क्रीन, B-roll, बैकग्राउंड म्यूज़िक, हार्डवेयर एनकोडर डिटेक्शन, LLM फॉलबैक।
-- `Dockerfile` / `docker-compose.yml` (Tier 4): कंटेनर में चलाने के लिए।
+- `main.py`: Master runner that starts the dashboard and background monitor in 1 click.
+- `kick_monitor.py`: Detects live streams with no browser load and maintains a 10-minute rolling buffer.
+- `hype_detector.py`: Measures audio volume spikes in the stream (screams, laughter, hype) in 0.2 seconds.
+- `ai_story_engine.py`: Uses Google Gemini and local Whisper to extract the clip's full story, punchline, viral title, hook banner and captions.
+- `clip_editor.py`: Converts 16:9 horizontal video to 9:16 vertical TikTok format, adds animated word-by-word subtitles and a top banner.
+- `screen_controller.py`: Playwright-based screen/browser agent that can scrub the Kick player back and forth and auto-upload to TikTok.
+- `web_dashboard.py`: Local FastAPI web control centre (`http://localhost:8500`).
+- `database.py`: SQLite database storing all streamers, detected clips and system logs.
+- `config.py`: The system's central settings.
+- `auto_clip_watcher.py` (Tier 1): Background thread that automatically creates clips on hype moments.
+- `chat_hype.py` (Tier 1): Live hype score from Kick chat (Pusher websocket).
+- `kick_webhooks.py` (Tier 1): Kick webhook receiver + subscription helper (instant live detection).
+- `clip_dedup.py` (Tier 1): Clip cooldown and duplicate protection.
+- `youtube_uploader.py` / `instagram_uploader.py` (Tier 2): YouTube Shorts and Instagram Reels uploaders.
+- `upload_scheduler.py` (Tier 2): Spaced, capped, retrying upload queue.
+- `earnings.py` / `analytics.py` / `dashboard_routers.py` (Tier 2): Kick programme earnings, performance feedback and their API routes.
+- `silence_cutter.py` / `thumbnail.py` / `streamer_profiles.py` / `streamer_detection.py` (Tier 3): Dead-space cutting, auto-thumbnails, per-streamer profiles, multi-streamer detection.
+- `auth.py` / `alerts.py` / `retry_utils.py` (Tier 4): Dashboard login, Discord/Telegram alerts, retry + checkpoint resume.
+- `karaoke_subtitles.py` / `render_modes.py` / `broll.py` / `bgm.py` / `encoder.py` / `llm_providers.py` (Tier 5): Kinetic karaoke subtitles, camera-switch/split-screen, B-roll, background music, hardware encoder detection, LLM fallback.
+- `Dockerfile` / `docker-compose.yml` (Tier 4): For running in a container.
 
 ---
 
-## 🛠️ कैसे शुरू करें (Quick Start)
+## 🛠️ Quick Start
 
-### 1. फोल्डर में जाएं
+### 1. Go to the folder
 ```powershell
-cd <path-to-this-repo>   # जहाँ आपने ai-social-studio clone किया है
+cd <path-to-this-repo>   # where you cloned ai-social-studio
 ```
 
-### 2. (वैकल्पिक) Gemini API Key जोड़ें
-`.env.example` को कॉपी करके `.env` बनाएं और अपनी फ्री Gemini API Key डालें:
+### 2. (Optional) Add a Gemini API Key
+Copy `.env.example` to `.env` and add your free Gemini API key:
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
 VIDEO_LAYOUT=blurred_backdrop
 ```
-*(नोट: यदि API Key नहीं भी है, तब भी यह सिस्टम बिल्ट-इन लोकल Whisper और स्मार्ट ह्यूरिस्टिक इंजन के साथ 100% काम करता है!)*
+*(Note: even without an API key, the system still works 100% with the built-in local Whisper and smart heuristic engine!)*
 
-### 3. सिस्टम चालू करें
+### 3. Start the system
 ```powershell
 # Windows:
-start_engine.bat        # या: python main.py
+start_engine.bat        # or: python main.py
 # macOS / Linux:
-chmod +x start.sh       # सिर्फ पहली बार चाहिए (only needed once after cloning)
-./start.sh              # या: python3 main.py
+chmod +x start.sh       # only needed once after cloning
+./start.sh              # or: python3 main.py
 ```
-यह कमांड तुरंत आपका वेब डैशबोर्ड `http://localhost:8500` पर आपके डिफ़ॉल्ट ब्राउज़र में खोल देगा!
+This command immediately opens your web dashboard at `http://localhost:8500` in your default browser!
 
 ---
 
-## 💻 Windows / macOS / Linux — सेटअप (Setup per platform)
+## 💻 Windows / macOS / Linux — Setup per platform
 
-एक ही code तीनों OS पर चलता है; fonts और paths `platform_utils.py` से OS के हिसाब से मिलते हैं।
+The same code runs on all three OSs; fonts and paths come from `platform_utils.py`, per OS.
 
-| जरूरत | Windows | macOS (MacBook) | Linux (Ubuntu) |
+| Need | Windows | macOS (MacBook) | Linux (Ubuntu) |
 |---|---|---|---|
-| Python | 3.11+ ([python.org](https://www.python.org/downloads/)) — install करते समय "Add to PATH" टिक करें | `brew install python@3.11` | `sudo apt install python3 python3-pip python3-venv` |
-| ffmpeg | [ffmpeg.org](https://ffmpeg.org/download.html) से install करें और PATH में डालें (या `winget install ffmpeg`) | `brew install ffmpeg` | `sudo apt install ffmpeg` |
-| Fonts | Windows Fonts अपने-आप मिल जाते हैं | macOS Fonts अपने-आप मिल जाते हैं (Impact / Arial Bold) | `sudo apt install fonts-dejavu-core fonts-liberation` (अगर न हों तो) |
-| Start | `start_engine.bat` (या `python main.py`) | `./start.sh` (या `python3 main.py`) | `./start.sh` (या `python3 main.py`) |
-| 1-click shortcut | `python create_desktop_shortcut.py` → Desktop `.lnk` | → Desktop `.command` (पहली बार Gatekeeper allow करना पड़ सकता है) | → Desktop `.desktop` + app menu (पहली बार "Allow Launching" चुनें) |
+| Python | 3.11+ ([python.org](https://www.python.org/downloads/)) — tick "Add to PATH" during install | `brew install python@3.11` | `sudo apt install python3 python3-pip python3-venv` |
+| ffmpeg | Install from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH (or `winget install ffmpeg`) | `brew install ffmpeg` | `sudo apt install ffmpeg` |
+| Fonts | Windows fonts are found automatically | macOS fonts are found automatically (Impact / Arial Bold) | `sudo apt install fonts-dejavu-core fonts-liberation` (if not already installed) |
+| Start | `start_engine.bat` (or `python main.py`) | `./start.sh` (or `python3 main.py`) | `./start.sh` (or `python3 main.py`) |
+| 1-click shortcut | `python create_desktop_shortcut.py` → Desktop `.lnk` | → Desktop `.command` (you may need to allow it in Gatekeeper the first time) | → Desktop `.desktop` + app menu (choose "Allow Launching" the first time) |
 
-पहली बार चलाने पर launcher खुद dependencies install कर लेता है (अगर fastapi नहीं मिला तो `pip install -r requirements.txt`)। `start.sh` में `--host`, `--port` और `--no-browser` flags pass-through होते हैं। Desktop app (`desktop_app.py`) भी तीनों OS पर चलती है: pywebview window पहले, नहीं तो browser app-mode (Windows: Edge/Chrome, macOS: Chrome, Linux: Chrome/Chromium)।
+On first run the launcher installs dependencies itself (if fastapi is not found, it runs `pip install -r requirements.txt`). `start.sh` passes through the `--host`, `--port` and `--no-browser` flags. The desktop app (`desktop_app.py`) also runs on all three OSs: pywebview window first, otherwise browser app-mode (Windows: Edge/Chrome, macOS: Chrome, Linux: Chrome/Chromium).
 
-## 📱 Android फ़ोन से डैशबोर्ड चलाएं (Phone browser)
+## 📱 Open the Dashboard from Your Android Phone (Phone browser)
 
-कोई native app नहीं चाहिए — clipping engine आपके computer/server पर चलता है और डैशबोर्ड फ़ोन के browser में खुलता है (mobile-friendly layout: बड़ी tap targets, phone screen पर fit होने वाला header और notifications panel)।
+No native app needed — the clipping engine runs on your computer/server and the dashboard opens in your phone's browser (mobile-friendly layout: large tap targets, a header and notifications panel that fit the phone screen).
 
-**Option A — same Wi-Fi (घर/office में):**
-1. Computer पर `.env` में `DASHBOARD_HOST=0.0.0.0` और `DASHBOARD_PASSWORD=<redacted>` डालें (password ज़रूरी है — डैशबोर्ड अब पूरे local network को दिखेगा)।
-2. Computer पर app start करें — startup पर "On your phone (same Wi-Fi)" वाली line में IP दिखेगा, जैसे `http://192.168.1.5:8500`।
-3. Android फ़ोन के Chrome में वही address खोलें (फ़ोन और computer एक ही Wi-Fi पर हों) और password से login करें।
+**Option A — same Wi-Fi (at home/in the office):**
+1. On the computer, put `DASHBOARD_HOST=0.0.0.0` and `DASHBOARD_PASSWORD=<your-password>` in `.env` (a password is essential — the dashboard will now be visible to the whole local network).
+2. Start the app on the computer — the "On your phone (same Wi-Fi)" line at startup shows the IP, e.g. `http://192.168.1.5:8500`.
+3. Open the same address in Chrome on your Android phone (phone and computer on the same Wi-Fi) and log in with the password.
 
-**Option B — VPS / server पर (कहीं से भी):**
-1. Server पर Docker (`docker compose up --build`, पहले से `0.0.0.0:8500` पर bind होता है) या `python main.py --host 0.0.0.0 --no-browser` से चलाएं।
-2. Server का IP/domain + port browser में खोलें (जैसे `http://<your-vps-ip>:8500`) — production में HTTPS reverse proxy (nginx/Caddy) + `DASHBOARD_PASSWORD` इस्तेमाल करें।
+**Option B — on a VPS / server (from anywhere):**
+1. Run it on the server with Docker (`docker compose up --build`, already binds to `0.0.0.0:8500`) or `python main.py --host 0.0.0.0 --no-browser`.
+2. Open the server's IP/domain + port in the browser (e.g. `http://<your-vps-ip>:8500`) — in production use an HTTPS reverse proxy (nginx/Caddy) + `DASHBOARD_PASSWORD`.
 
-**Tip:** Chrome में ⋮ → "Add to Home screen" से डैशबोर्ड home screen icon बन जाता है — full-screen app जैसा खुलता है।
+**Tip:** In Chrome, ⋮ → "Add to Home screen" turns the dashboard into a home-screen icon — it opens like a full-screen app.
 
 ---
 
-## 🐳 Docker से चलाएं (Docker Quickstart)
+## 🐳 Run with Docker (Docker Quickstart)
 
 ```powershell
 copy .env.example .env
-# .env में अपनी keys डालें, फिर:
+# put your keys in .env, then:
 docker compose up --build
 ```
-डैशबोर्ड `http://localhost:8500` पर मिलेगा। पहली बार `up` करने से पहले `kick_engine.db` फाइल मौजूद होनी चाहिए (खाली फाइल भी चलेगी) — नहीं तो Docker उसकी जगह एक डायरेक्टरी बना देता है। Windows पर GPU एनकोडिंग (NVENC) Docker में काम नहीं करती; `VIDEO_ENCODER=libx264` रखें।
+The dashboard will be at `http://localhost:8500`. Before the first `up`, the `kick_engine.db` file must exist (an empty file is fine) — otherwise Docker creates a directory in its place. GPU encoding (NVENC) does not work in Docker on Windows; keep `VIDEO_ENCODER=libx264`.
 
 ---
 
-## 🔔 Kick Webhooks सेटअप (Instant Live Detection)
+## 🔔 Kick Webhooks Setup (Instant Live Detection)
 
-Polling हर 15 सेकंड में लाइव स्टेटस चेक करता है; webhooks लाइव होते ही तुरंत बता देते हैं।
-1. [kick.com/settings/developer](https://kick.com/settings/developer) पर app बनाएं — `KICK_CLIENT_ID` और `KICK_CLIENT_SECRET` नोट करें।
-2. `.env` में `KICK_CLIENT_ID`, `KICK_CLIENT_SECRET`, `KICK_ACCESS_TOKEN` और `KICK_WEBHOOK_URL` (आपके सर्वर का public HTTPS URL) डालें।
-3. डैशबोर्ड पर `GET /api/webhooks/status` से checklist देखें, फिर `POST /api/webhooks/subscribe` से subscribe करें।
-4. Webhook endpoint: `POST /api/webhooks/kick` (signature RSA-SHA256 से verify होती है)।
+Polling checks the live status every 15 seconds; webhooks tell you the moment a stream goes live.
+1. Create an app at [kick.com/settings/developer](https://kick.com/settings/developer) — note down `KICK_CLIENT_ID` and `KICK_CLIENT_SECRET`.
+2. Put `KICK_CLIENT_ID`, `KICK_CLIENT_SECRET`, `KICK_ACCESS_TOKEN` and `KICK_WEBHOOK_URL` (your server's public HTTPS URL) in `.env`.
+3. Check the checklist at `GET /api/webhooks/status` on the dashboard, then subscribe with `POST /api/webhooks/subscribe`.
+4. Webhook endpoint: `POST /api/webhooks/kick` (signature verified with RSA-SHA256).
 
-> नोट: यह verify नहीं हुआ है कि एक user token *दूसरे* broadcasters के लिए subscribe कर सकता है या नहीं। अगर Kick मना करे, तो webhooks सिर्फ आपके अपने चैनल के लिए काम करेंगे और बाकी स्ट्रीमर्स के लिए polling ही चलेगा — जो पहले से काम कर रहा है।
+> Note: it has not been verified whether a user token can subscribe for *other* broadcasters. If Kick refuses, webhooks will only work for your own channel and polling will continue for other streamers — which already works.
 
 ---
 
 ## ⚙️ Configuration (.env)
 
-`.env.example` में सभी settings grouped हैं — Tier 1–5 की हर feature के साथ। सबसे ज़रूरी:
-- `AUTO_CLIP_ENABLED=true` — ऑटो-क्लिपिंग चालू करें (default: off)।
-- `CHAT_HYPE_ENABLED=true` — चैट हाइप चालू करें (default: off)।
-- `DASHBOARD_PASSWORD` या `DASHBOARD_PASSWORD_HASH` — डैशबोर्ड लॉगिन (default: खुला)।
-- `SUBTITLE_STYLE=karaoke` — किनेटिक कराओके सबटाइटल्स (default: classic)।
-- `BGM_ENABLED=true` + `assets/bgm/<mood>/` में MP3 — बैकग्राउंड म्यूज़िक (default: off)।
-- `VIDEO_ENCODER=auto` — NVENC/AMF/VAAPI/libx264 ऑटो-डिटेक्ट (default: auto)।
-- `DASHBOARD_HOST=0.0.0.0` + `DASHBOARD_PORT=8500` — डैशबोर्ड को local network / Android फ़ोन से खोलने के लिए (default: सिर्फ इसी computer से)।
+All settings are grouped in `.env.example` — with every Tier 1–5 feature. The most important:
+- `AUTO_CLIP_ENABLED=true` — turn on auto-clipping (default: off).
+- `CHAT_HYPE_ENABLED=true` — turn on chat hype (default: off).
+- `DASHBOARD_PASSWORD` or `DASHBOARD_PASSWORD_HASH` — dashboard login (default: open).
+- `SUBTITLE_STYLE=karaoke` — kinetic karaoke subtitles (default: classic).
+- `BGM_ENABLED=true` + MP3s in `assets/bgm/<mood>/` — background music (default: off).
+- `VIDEO_ENCODER=auto` — NVENC/AMF/VAAPI/libx264 auto-detect (default: auto).
+- `DASHBOARD_HOST=0.0.0.0` + `DASHBOARD_PORT=8500` — open the dashboard from the local network / Android phone (default: this computer only).
 
 ---
 
-## 🎮 डैशबोर्ड में क्या-क्या कर सकते हैं?
-1. **Streamer Watchlist**: नए स्ट्रीमर्स जोड़ें या हटाएं। उनका लाइव स्टेटस, व्यूअर्स और टाइटल तुरंत दिखता है।
-2. **Instant Clip Trigger**: किसी भी लाइव स्ट्रीमर का पिछला 30s, 45s या 60s का क्लिप 1-क्लिक में निकालें।
-3. **Player Scrub**: स्ट्रीमर के स्ट्रीम को 30 सेकंड पीछे (Rewind) या आगे (Forward) करें।
-4. **Vertical Video Studio**: तैयार 9:16 टिकटॉक वीडियो को सीधे वेब प्लेयर में देखें (वर्ड-बाय-वर्ड सबटाइटल्स और टॉप हुक बैनर के साथ)।
-5. **Publish to TikTok**: 1-क्लिक से टिकटॉक स्टूडियो में वीडियो और कैप्शंस ऑटो-फिल करके पब्लिश करें।
-6. **Resource Telemetry**: डैशबोर्ड के टॉप पर रियल-टाइम CPU और RAM यूसेज देख सकते हैं कि यह कितना हल्का चल रहा है।
-7. **Earnings & Analytics**: Kick प्रोग्राम submissions, CPM अर्निंग्स और AI-score फीडबैक (कौन सा threshold सबसे अच्छा चल रहा है)।
-8. **Upload Queue**: YouTube / Instagram / TikTok अपलोड्स की spaced, capped क्यू।
-9. **Clip Retry**: फेल हुए क्लिप को आखिरी checkpoint से resume करें (`/api/clips/{id}/retry`)।
-10. **Webhooks Status**: Kick webhook configuration और setup checklist (`/api/webhooks/status`)।
+## 🎮 What Can You Do in the Dashboard?
+1. **Streamer Watchlist**: Add or remove streamers. Their live status, viewers and title show up instantly.
+2. **Instant Clip Trigger**: Extract the last 30s, 45s or 60s clip of any live streamer in 1 click.
+3. **Player Scrub**: Rewind or forward the streamer's stream by 30 seconds.
+4. **Vertical Video Studio**: Watch the finished 9:16 TikTok video directly in the web player (with word-by-word subtitles and top hook banner).
+5. **Publish to TikTok**: Publish in 1 click with video and captions auto-filled in TikTok Studio.
+6. **Resource Telemetry**: See real-time CPU and RAM usage at the top of the dashboard to see how light it runs.
+7. **Earnings & Analytics**: Kick programme submissions, CPM earnings and AI-score feedback (which threshold performs best).
+8. **Upload Queue**: Spaced, capped queue for YouTube / Instagram / TikTok uploads.
+9. **Clip Retry**: Resume a failed clip from its last checkpoint (`/api/clips/{id}/retry`).
+10. **Webhooks Status**: Kick webhook configuration and setup checklist (`/api/webhooks/status`).
