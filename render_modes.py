@@ -162,6 +162,13 @@ def build_camera_switch_filter(segments, trajectories, width: int = DEFAULT_WIDT
     Wiring: pass the filter as ``-filter_complex`` and ``-map
     "[camswitch_out]"`` for video plus ``-map 0:a`` for audio (audio is
     untouched — the video cuts are sample-accurate to the segment times).
+
+    A speaker used in more than one segment gets their cropped stream
+    ``split`` into one copy per segment: an ffmpeg filter output may
+    only be consumed once, so feeding the same ``[cam_<speaker>]``
+    label into two trims fails at runtime on ffmpeg 8 ("Error
+    reinitializing filters"). Each trim also carries ``setsar=1`` so
+    the concat sees identical sample aspect ratios.
     """
     if not segments:
         raise ValueError("segments must not be empty")
@@ -172,6 +179,11 @@ def build_camera_switch_filter(segments, trajectories, width: int = DEFAULT_WIDT
         if seg["speaker"] not in trajectories:
             raise ValueError(f"No trajectory provided for speaker {seg['speaker']!r}")
 
+    # How many segments each speaker appears in (after min-hold merging).
+    use_count = {}
+    for seg in held:
+        use_count[seg["speaker"]] = use_count.get(seg["speaker"], 0) + 1
+
     parts = []
     cam_labels = {}
     for seg in held:
@@ -180,14 +192,27 @@ def build_camera_switch_filter(segments, trajectories, width: int = DEFAULT_WIDT
             label = f"[cam_{_safe_label(speaker)}]"
             parts.append(_crop_filter(source_label, trajectories[speaker], label,
                                       width, height, fps))
-            cam_labels[speaker] = label
+            if use_count[speaker] > 1:
+                # One split copy per segment that uses this camera.
+                copies = [f"[cam_{_safe_label(speaker)}_{i}]"
+                          for i in range(use_count[speaker])]
+                parts.append(
+                    f"{label}split={use_count[speaker]}{''.join(copies)}"
+                )
+                cam_labels[speaker] = copies
+            else:
+                cam_labels[speaker] = [label]
 
     seg_labels = []
+    use_index = {}
     for i, seg in enumerate(held):
+        speaker = seg["speaker"]
+        idx = use_index.get(speaker, 0)
+        use_index[speaker] = idx + 1
         label = f"[csw_seg{i}]"
         parts.append(
-            f"{cam_labels[seg['speaker']]}trim=start={_fmt_time(seg['start'])}"
-            f":end={_fmt_time(seg['end'])},setpts=PTS-STARTPTS{label}"
+            f"{cam_labels[speaker][idx]}trim=start={_fmt_time(seg['start'])}"
+            f":end={_fmt_time(seg['end'])},setpts=PTS-STARTPTS,setsar=1{label}"
         )
         seg_labels.append(label)
 

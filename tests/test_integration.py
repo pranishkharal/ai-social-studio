@@ -141,13 +141,14 @@ def test_config_safe_defaults(monkeypatch):
     # test does not depend on import-time environment.)
     import os
     for var in ("AUTO_CLIP_ENABLED", "CHAT_HYPE_ENABLED", "BGM_ENABLED",
-                "BROLL_ENABLED"):
+                "BROLL_ENABLED", "ENABLE_SUBTITLES"):
         monkeypatch.delenv(var, raising=False)
         assert os.getenv(var) is None
     import config
     assert config._env_bool("AUTO_CLIP_ENABLED", False) is False
     assert config._env_bool("BGM_ENABLED", False) is False
     assert config._env_bool("BROLL_ENABLED", False) is False
+    assert config._env_bool("ENABLE_SUBTITLES", False) is False
     assert config._env_int("AUTO_CLIP_MIN_SCORE", 70) == 70
     assert config.SUBTITLE_STYLE in ("classic", "karaoke")
 

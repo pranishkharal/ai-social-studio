@@ -2,6 +2,88 @@
 
 All notable changes to ai-social-studio are documented here.
 
+## [Unreleased] — Hook banner shows for 4 seconds only
+
+- **Hook banner timing** (`clip_editor.py`): the white hook banner now
+  shows for the first 4 seconds of a clip only
+  (`BANNER_DURATION_SECONDS = 4.0`), fades out over 0.5 s
+  (`BANNER_FADE_SECONDS`), and stays hidden for the rest of the clip.
+  Applies to every layout (classic, face-view, camera-switch,
+  split-screen) — the banner is composited in one place, after the
+  layout transform. The Kick watermark bar is branding and stays
+  visible throughout. Implementation: the still card image is looped
+  (finite loop — `loop=-1` stalls the filter graph) and trimmed to
+  the banner window, with a `fade=t=out:alpha=1` plus an overlay
+  `enable='between(t,0,4.50)'`. The trim matters: an untrimmed loop
+  stretches the output to the loop length. Covered by
+  `tests/test_banner_timing.py` (5 tests).
+
+## [1.1.1] — 2026-11-19 — Live-demo bug fixes + no subtitles by default
+
+Seven bugs found during a live demo run on adinross (19 Nov 2026), plus
+the no-subtitles default for Kick clips. Verified: full test suite
+484 passed, 1 skipped (the pre-existing OpenCV skip); every fix has a
+targeted repro check and a regression test.
+
+### Behaviour change — no subtitles by default
+- Kick live-stream clips are now rendered **without burned-in
+  subtitles** by default. Whisper still transcribes every clip —
+  silence cutting depends on the word timestamps — the words just are
+  not drawn on the video. Opt back in with `ENABLE_SUBTITLES=true`,
+  `pipeline.process_moment(subtitles=True)`, or the dashboard's
+  auto-captions checkbox. Karaoke style (`SUBTITLE_STYLE=karaoke`)
+  only applies when subtitles are enabled.
+
+### Bug fixes
+- **Hype detector** (`hype_detector.py`): ffmpeg 8 prints
+  `mean_volume` before `max_volume`, so the old max-then-mean regex
+  never matched and every clip fell back to hype score 10.0. The
+  parser now searches for each value independently (both orders work).
+  The analysis is also audio-only now (`-vn`): decoding the 1080p60
+  video stream to null was slow enough to hit the 10 s timeout and
+  fall back to 10.0 on a loaded machine — audio-only takes under a
+  second (timeout raised to 30 s as a safety margin).
+- **Whisper transcription** (`requirements.txt`): faster-whisper
+  1.2.1 (the latest release) passes `metadata_errors="ignore"` to
+  `av.open()`, which PyAV 19 removed — transcription failed outright
+  on a fresh install. `av` is now pinned to `>=15,<19` (15–18 accept
+  the keyword and ship wheels for Windows, macOS and Linux).
+- **Camera-switch rendering** (`render_modes.py`): the filter failed
+  on ffmpeg 8 when the same camera was used in two or more segments
+  (one filter output fed into two trims). The builder now emits an
+  explicit `split` per repeated camera plus `setsar=1` on every
+  segment. Covered by a test that actually runs ffmpeg.
+- **Auto-thumbnails** (`thumbnail.py`, `clip_editor.py`): the
+  thumbnail's hook-text box used to land on top of the white hook
+  banner already burned into the frame. The thumbnail frame is now
+  grabbed from the clean pre-overlay source clip, so the thumbnail's
+  text box is the only text on the thumbnail — never two text boxes
+  on one frame. Because that source frame is 16:9 while the clip is
+  9:16, the thumbnail is cropped to portrait first, centred on the
+  streamer's face when one is detected (else centred), and the
+  hook-text band sits below the facecam instead of covering the face.
+- **Hook banner vs facecam** (`clip_editor.py`): the top banner
+  covered the streamer's face in speaker-tracking / camera-switch /
+  split-screen layouts (the facecam sits at the top of the frame).
+  The banner is now layout-aware: it drops below the facecam zone
+  (y 800) for face-tracking layouts; the classic layout keeps the
+  top banner.
+- **OpenCV pin** (`requirements.txt`): OpenCV 5.x removed
+  `CascadeClassifier`, which face tracking relies on.
+  `opencv-python-headless` is now pinned to `>=4.9,<5`.
+- **Live capture** (`kick_monitor.py`, `requirements.txt`): the v2
+  channel endpoint no longer reliably returns `playback_url` — the
+  monitor now reads it from `GET /api/v2/channels/{slug}/livestream`
+  (falling back to the channel payload when present), and ffmpeg gets
+  the `Referer: https://kick.com/` header plus a browser User-Agent
+  that Kick's IVS playback requires (bare ffmpeg requests get a 400).
+  API fetches also retry a few times on transient failures, and the
+  monitor now fetches via `requests` instead of the stdlib urllib:
+  urllib's http.client got truncated responses (`IncompleteRead`)
+  from Kick's CDN/proxies on this API while requests handled the
+  same calls reliably (0/13 urllib attempts vs 10/10 requests
+  attempts in live testing).
+
 ## [1.1.0] — 2026-11-19 — Live Clipping Upgrades
 
 All 17 features from the suggestions doc, plus a Tier 5 of rendering

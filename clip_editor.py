@@ -7,6 +7,18 @@ from database import log_event
 from kick_program import generate_kick_watermark
 from retry_utils import retry
 
+# Hook banner timing (Sara's rule): the white hook banner shows for the
+# first BANNER_DURATION_SECONDS of a clip, then fades out over
+# BANNER_FADE_SECONDS and stays hidden for the rest of the clip. The
+# Kick watermark bar is branding, not the banner, and stays visible
+# throughout. The banner card is a single still image, so the overlay
+# input is looped to give the fade filter a running timeline — the loop
+# count is finite on purpose (loop=-1 stalls the filter graph) and far
+# more frames than the 4.5 s window needs at any sane image fps.
+BANNER_DURATION_SECONDS = 4.0
+BANNER_FADE_SECONDS = 0.5
+BANNER_LOOP_FRAMES = 600
+
 
 def resolve_font_path(preferred_names):
     """
@@ -106,6 +118,10 @@ class ClipEditor:
         - Word wrapped cleanly within safe horizontal margins (max_width 720px)
         - Safe vertical positioning:
           * "top": Safe top zone (y: 260-450, blue circled area in screenshot)
+            for blurred_backdrop / center_crop; for face-tracking layouts
+            (speaker_tracking, camera_switch, split_screen) the banner
+            drops to y 800, below the facecam zone, so it never covers
+            the streamer's face.
           * "bottom": Stacked directly above Kick watermark bar (y: 1410 - box_h)
           * "none": No caption
         """
@@ -159,6 +175,13 @@ class ClipEditor:
                 # TikTok top header tabs occupy y = 0 to 220
                 # Vertically center the caption card in this safe top region:
                 box_y = int(230 + (410 - box_h) // 2)
+            elif layout in ("speaker_tracking", "smart_crop", "camera_switch", "split_screen"):
+                # Face-tracking layouts: the streamer's facecam fills the
+                # top of the 9:16 frame (roughly y 0-760), so a banner at
+                # y 260 would cover their face. Drop it below the facecam
+                # zone, over the gameplay — still well above the Kick
+                # watermark bar (y 1420) and the subtitle zone.
+                box_y = 800
             else:
                 # Full vertical crop / speaker tracking: place cleanly below top TikTok tabs
                 box_y = 260
@@ -223,8 +246,12 @@ class ClipEditor:
         - Compliant overlay placement (>= 25% above bottom, safe from TikTok UI)
         - Anti-Saturation Mirroring (bypasses unoriginal content flag)
         - HDR Sharpness & Contrast Boost
-        - Clean On-Screen Text (Top Hook Banner)
-        - Auto-captions OFF by default (clean cinematic look)
+        - Clean On-Screen Text (Top Hook Banner): the banner shows for
+          the first 4 seconds only (BANNER_DURATION_SECONDS), fades out
+          over 0.5 s and stays hidden for the rest of the clip.
+        - Auto-captions OFF by default (clean cinematic look): subtitles
+          are only burned in when auto_captions=True is passed (the
+          pipeline enables it via subtitles=True / ENABLE_SUBTITLES).
         - Dead-space removal: when Whisper word timings are passed via
           ``words`` (and silence_trim is True), long silent gaps are cut
           before rendering. Behaviour is identical when words is None.
@@ -503,15 +530,27 @@ class ClipEditor:
         current_label = "[with_wm]"
 
         # 5. Add Clean On-Screen Story Caption Card (Prestige White Sticker Card in Safe Zone)
+        # Banner timing (Sara's rule): visible for the first 4 s only,
+        # 0.5 s fade-out, then hidden. The fade runs on the looped card
+        # stream (a still image has no timeline of its own) and the
+        # overlay enable is belt-and-braces so nothing lingers past 4.5 s.
+        # The card stream is trimmed to the banner window: ffmpeg keeps
+        # the output running until the longest filter input ends, so an
+        # untrimmed loop would stretch the clip to the loop length.
         card_png = None
         if hook_banner and caption_position != "none":
             import time
             card_png = str(EDITED_DIR / f"temp_card_{streamer}_{int(time.time()*1000)}.png")
             self.generate_screen_caption_card(hook_banner, card_png, position=caption_position, layout=layout)
             escaped_card = self.escape_path(card_png)
+            banner_end = BANNER_DURATION_SECONDS + BANNER_FADE_SECONDS
+            clip_len = _probe_duration(source_path)
+            card_end = banner_end if not clip_len else min(banner_end, clip_len)
             filter_complex.append(
-                f"movie='{escaped_card}'[card];"
-                f"{current_label}[card]overlay=0:0[with_card]"
+                f"movie='{escaped_card}',loop=loop={BANNER_LOOP_FRAMES}:size=1:start=0,"
+                f"trim=0:{card_end:.2f},setpts=PTS-STARTPTS,"
+                f"format=rgba,fade=t=out:st={BANNER_DURATION_SECONDS:.2f}:d={BANNER_FADE_SECONDS:.2f}:alpha=1[card_faded];"
+                f"{current_label}[card_faded]overlay=0:0:enable='between(t,0,{banner_end:.2f})'[with_card]"
             )
             current_label = "[with_card]"
 
@@ -590,12 +629,19 @@ class ClipEditor:
                 raise RuntimeError(f"FFmpeg failed: {res.stderr[-200:]}")
 
             # 7. Auto-thumbnail: best frame + hook text next to the render.
-            # Failures here must never fail the render.
+            # Failures here must never fail the render. The frame is
+            # grabbed from the pre-overlay source clip (source_path),
+            # not the rendered clip: the render already has the white
+            # hook banner burned in, and drawing the thumbnail's own
+            # text box on top of it would put two text boxes on one
+            # frame. (source_path still exists here; temp-file cleanup
+            # runs in the finally block below.)
             if generate_thumbnail:
                 try:
                     from thumbnail import generate_thumbnail as _make_thumbnail
                     thumb_path = str(Path(output_path).with_name(Path(output_path).stem + "_thumb.jpg"))
-                    _make_thumbnail(output_path, hook_banner or "", thumb_path, words=words)
+                    _make_thumbnail(output_path, hook_banner or "", thumb_path,
+                                    words=words, frame_source_path=source_path)
                     log_event("INFO", "ClipEditor", f"Thumbnail saved: {thumb_path}")
                 except Exception as e:
                     log_event("WARNING", "ClipEditor", f"Thumbnail generation failed (render unaffected): {e}")

@@ -142,6 +142,12 @@ OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "http://localhost:1234/v1")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "lm-studio")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "local-model")
 VIDEO_ENCODER = os.getenv("VIDEO_ENCODER", "auto")
+# Subtitles are OFF by default for Kick live-stream clips: the rendered
+# clip has no burned-in captions unless subtitles are explicitly enabled
+# (ENABLE_SUBTITLES=true, pipeline subtitles=True, or the dashboard's
+# auto-captions checkbox). Whisper still transcribes every clip —
+# silence cutting depends on the word timestamps.
+SUBTITLES_ENABLED = _env_bool("ENABLE_SUBTITLES", False)
 SUBTITLE_STYLE = os.getenv("SUBTITLE_STYLE", "classic")
 BROLL_ENABLED = _env_bool("BROLL_ENABLED", False)
 BGM_ENABLED = _env_bool("BGM_ENABLED", False)
