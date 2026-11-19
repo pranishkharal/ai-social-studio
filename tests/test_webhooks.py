@@ -680,12 +680,31 @@ def test_route_without_monitor_still_returns_200():
 # ----------------------------------------------------------------------
 # KickMonitor webhook hooks (kick_monitor.py is Worker A's file to edit)
 # ----------------------------------------------------------------------
-def test_monitor_ssl_is_verified():
-    import ssl
+def test_monitor_ssl_is_verified(monkeypatch):
+    """Kick API calls must verify TLS. The monitor fetches via requests,
+    which verifies certificates by default — the regression this guards
+    is a future edit passing verify=False (the old urllib code carried
+    an explicit verified SSL context; this asserts the equivalent)."""
     import kick_monitor
+
     monitor = kick_monitor.KickMonitor()
-    assert monitor.ssl_ctx.verify_mode == ssl.CERT_REQUIRED
-    assert monitor.ssl_ctx.check_hostname is True
+    calls = {}
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {}
+
+    def _fake_get(url, headers=None, timeout=None, **kwargs):
+        # requests.get defaults verify=True; record whatever was passed.
+        calls["verify"] = kwargs.get("verify", True)
+        return _Resp()
+
+    monkeypatch.setattr(kick_monitor.requests, "get", _fake_get)
+    monitor._get_json("https://kick.com/api/v2/channels/xqc")
+    assert calls["verify"] is not False
 
 
 def test_monitor_handle_stream_started(monkeypatch):

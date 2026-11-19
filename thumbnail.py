@@ -6,6 +6,14 @@ high-contrast type, and saves a JPG next to the clip. Used by
 ClipEditor.edit_clip (and useful for YouTube Shorts + the dashboard clip
 list, which currently have no thumbnails at all).
 
+The frame is grabbed from the pre-overlay source clip when the caller
+provides one (see generate_thumbnail's frame_source_path): the rendered
+clip already has the white hook banner burned in, so the thumbnail's
+own text box must never be drawn on top of it — one frame, one text box.
+That source frame is 16:9 while the clip is 9:16, so the thumbnail is
+cropped to 9:16 first, centred on the streamer's face when one is
+detected (else centred) — the thumbnail stays portrait like the clip.
+
 Frame selection, in priority order:
     1. ``peak_time`` argument, when the caller already knows it.
     2. Peak-audio moment: ffmpeg ``astats`` RMS levels are measured over
@@ -241,6 +249,59 @@ def pick_thumbnail_time(video_path, words=None, peak_time=None):
     return 1.0
 
 
+def _largest_face_box(frame_path):
+    """Bounding box (x, y, w, h) of the largest face in a frame file.
+
+    Best-effort: None when OpenCV or the Haar cascade is missing, or
+    no face is found. Used to centre the 9:16 thumbnail crop on the
+    streamer (x) and to keep the hook-text band off their face (y).
+    """
+    try:
+        import cv2
+    except ImportError:
+        return None
+
+    cascade_path = Path(__file__).resolve().parent / "models" / "haarcascade_frontalface_default.xml"
+    if not cascade_path.exists():
+        cascade_path = Path("models") / "haarcascade_frontalface_default.xml"
+    if not cascade_path.exists():
+        return None
+
+    try:
+        face_cascade = cv2.CascadeClassifier(str(cascade_path))
+        if face_cascade.empty():
+            return None
+        img = cv2.imread(str(frame_path))
+        if img is None:
+            return None
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(
+            gray, scaleFactor=1.15, minNeighbors=4, minSize=(30, 30)
+        )
+        if len(faces) == 0:
+            return None
+        x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
+        return (int(x), int(y), int(w), int(h))
+    except Exception:
+        return None
+
+
+def _crop_to_vertical(image, center_x=None):
+    """Crop a landscape frame to 9:16; portrait frames pass through.
+
+    The crop window is centred on ``center_x`` (the streamer's face)
+    when given, else on the frame centre, clamped to the frame edges
+    so the window never runs off the sides.
+    """
+    width, height = image.size
+    target_w = int(round(height * 9 / 16))
+    if width <= target_w:
+        return image
+    cx = width // 2 if center_x is None else center_x
+    left = max(0, min(width - target_w, cx - target_w // 2))
+    return image.crop((left, 0, left + target_w, height))
+
+
 def _load_bold_font(size):
     """
     Cross-platform bold font lookup (Windows, macOS, Linux — see
@@ -251,8 +312,14 @@ def _load_bold_font(size):
     return load_font(size, bold=True)
 
 
-def _overlay_hook_text(image, hook_text):
-    """Draw bold, high-contrast wrapped hook text over the frame."""
+def _overlay_hook_text(image, hook_text, min_y=None):
+    """Draw bold, high-contrast wrapped hook text over the frame.
+
+    ``min_y`` (pixels) pushes the text band down: when a face was
+    detected at the top of the frame (the streamer's facecam), the
+    band starts below the face instead of covering it. Ignored when
+    the band would not fit below ``min_y`` — then it stays at the top.
+    """
     from PIL import ImageDraw
 
     if not hook_text or not hook_text.strip():
@@ -287,6 +354,9 @@ def _overlay_hook_text(image, hook_text):
     block_h = len(lines) * line_height + pad_y * 2
     # Top placement: clear of TikTok/Shorts bottom UI, visible in feeds.
     box_y = int(height * 0.06)
+    if min_y is not None and min_y + block_h <= int(height * 0.85):
+        # Keep the band off the detected face when there is room.
+        box_y = max(box_y, int(min_y))
     box_x = int(width * 0.06)
     box_w = width - 2 * box_x
 
@@ -311,7 +381,8 @@ def _overlay_hook_text(image, hook_text):
     return image
 
 
-def generate_thumbnail(video_path, hook_text, output_path, words=None, peak_time=None):
+def generate_thumbnail(video_path, hook_text, output_path, words=None, peak_time=None,
+                       frame_source_path=None):
     """
     Generate a JPG thumbnail for a clip.
 
@@ -321,6 +392,14 @@ def generate_thumbnail(video_path, hook_text, output_path, words=None, peak_time
         output_path: where the JPG is saved.
         words: optional Whisper word dicts, used as a fallback frame signal.
         peak_time: optional known peak moment in seconds.
+        frame_source_path: optional video to grab the frame from instead
+            of ``video_path``. ClipEditor passes the pre-overlay source
+            clip here: the rendered clip already has the white hook
+            banner burned in, so drawing the thumbnail's own hook-text
+            box on top of it puts two text boxes on one frame. Grabbing
+            the frame from the clean source means the thumbnail's text
+            box is the only text on the thumbnail. Falls back to
+            ``video_path`` when the path is missing.
 
     Returns:
         output_path.
@@ -334,14 +413,34 @@ def generate_thumbnail(video_path, hook_text, output_path, words=None, peak_time
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video not found: {video_path}")
 
-    timestamp = pick_thumbnail_time(video_path, words=words, peak_time=peak_time)
+    # The frame comes from the clean pre-overlay source when one is
+    # given (same timeline as the render, so peak/face/speech timing
+    # still applies); otherwise from the rendered clip itself.
+    frame_source = frame_source_path
+    if not frame_source or not os.path.exists(frame_source):
+        frame_source = video_path
+
+    timestamp = pick_thumbnail_time(frame_source, words=words, peak_time=peak_time)
 
     with tempfile.TemporaryDirectory(prefix="thumb_") as tmp_dir:
         frame_path = os.path.join(tmp_dir, "frame.jpg")
-        _grab_frame(video_path, timestamp, frame_path)
+        _grab_frame(frame_source, timestamp, frame_path)
+        face_box = _largest_face_box(frame_path)
         image = Image.open(frame_path).convert("RGB")
 
-    image = _overlay_hook_text(image, hook_text)
+    # The clean source frame is 16:9 but the clip (and its thumbnail)
+    # is 9:16: crop to portrait, centred on the streamer's face when
+    # one was found. A frame grabbed from the rendered clip is already
+    # 9:16, so the crop is a no-op there.
+    face_cx = None
+    text_min_y = None
+    if face_box is not None:
+        face_cx = face_box[0] + face_box[2] // 2
+        # Keep the hook-text band below the facecam: the crop is
+        # full-height, so the face's bottom edge is unchanged by it.
+        text_min_y = face_box[1] + face_box[3] + 24
+    image = _crop_to_vertical(image, face_cx)
+    image = _overlay_hook_text(image, hook_text, min_y=text_min_y)
 
     parent = Path(output_path).parent
     if str(parent):

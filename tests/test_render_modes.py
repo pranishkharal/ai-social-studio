@@ -123,6 +123,78 @@ def test_camera_switch_centred_crop_when_x_omitted():
     assert "crop=607:1080:(iw-607)/2:0" in filt
 
 
+def test_camera_switch_repeated_speaker_splits_camera():
+    # alice -> bob -> alice: alice's camera is used in two segments. An
+    # ffmpeg filter output may only be consumed once, so the builder
+    # must split her cropped stream into one copy per segment (the old
+    # code fed [cam_alice] into two trims and ffmpeg 8 failed with
+    # "Error reinitializing filters").
+    segments = [
+        {"speaker": "alice", "start": 0.0, "end": 2.0},
+        {"speaker": "bob", "start": 2.0, "end": 4.0},
+        {"speaker": "alice", "start": 4.0, "end": 6.0},
+    ]
+    filt, label = build_camera_switch_filter(
+        segments, {"alice": TRAJ_A, "bob": TRAJ_B})
+    assert label == "[camswitch_out]"
+    assert "[cam_alice]split=2[cam_alice_0][cam_alice_1]" in filt
+    assert "[cam_alice_0]trim=start=0.00:end=2.00" in filt
+    assert "[cam_alice_1]trim=start=4.00:end=6.00" in filt
+    assert "[cam_alice]trim=" not in filt  # never trim the shared label
+    assert "setsar=1" in filt
+    assert "concat=n=3:v=1:a=0[camswitch_out]" in filt
+    # bob is used once: no split for him.
+    assert "split=" in filt and "[cam_bob]split=" not in filt
+
+
+def test_camera_switch_repeated_speaker_runs_ffmpeg(tmp_path):
+    """The repeated-camera filter must actually render in ffmpeg."""
+    import shutil
+    import subprocess
+
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    src = tmp_path / "src.mp4"
+    res = subprocess.run(
+        ["ffmpeg", "-y", "-v", "error",
+         "-f", "lavfi", "-i", "testsrc2=duration=4:size=1920x1080:rate=15",
+         "-f", "lavfi", "-i", "sine=frequency=440:duration=4",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+         "-shortest", str(src)],
+        capture_output=True, text=True)
+    assert res.returncode == 0, res.stderr[-300:]
+
+    segments = [
+        {"speaker": "alice", "start": 0.0, "end": 1.5},
+        {"speaker": "bob", "start": 1.5, "end": 2.5},
+        {"speaker": "alice", "start": 2.5, "end": 4.0},
+    ]
+    filt, out_label = build_camera_switch_filter(
+        segments, {"alice": TRAJ_A, "bob": TRAJ_B},
+        width=540, height=960, min_hold=1.0)
+    out = tmp_path / "out.mp4"
+    res = subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-i", str(src),
+         "-filter_complex", filt, "-map", out_label, "-map", "0:a",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+         "-shortest", str(out)],
+        capture_output=True, text=True)
+    assert res.returncode == 0, res.stderr[-500:]
+    assert out.exists()
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height",
+         "-show_entries", "format=duration",
+         "-of", "csv=p=0", str(out)],
+        capture_output=True, text=True)
+    assert probe.returncode == 0
+    lines = probe.stdout.strip().splitlines()
+    width, height = lines[0].split(",")
+    duration = float(lines[1])
+    assert (int(width), int(height)) == (540, 960)
+    assert abs(duration - 4.0) < 0.2
+
+
 # ---------------------------------------------------------------- split screen
 
 def _panel(name, x):

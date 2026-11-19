@@ -138,7 +138,9 @@ def test_generate_thumbnail_real_video(tmp_path):
     from PIL import Image
     img = Image.open(out)
     assert img.format == "JPEG"
-    assert img.size == (640, 360)
+    # Source frame is 640x360 landscape; the thumbnail is cropped to
+    # 9:16 portrait like the clip (round(360 * 9 / 16) = 202 wide).
+    assert img.size == (202, 360)
 
 
 @needs_ffmpeg
@@ -163,6 +165,176 @@ def test_generate_thumbnail_no_audio_falls_back(tmp_path):
 def test_generate_thumbnail_missing_video_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         generate_thumbnail(str(tmp_path / "nope.mp4"), "hook", str(tmp_path / "t.jpg"))
+
+
+# --- 9:16 thumbnail crop: the clean source frame is 16:9, the clip is 9:16 ---
+
+def _striped_image():
+    """640x360 image: red left third, green middle, blue right third."""
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (640, 360), (0, 255, 0))
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([0, 0, 212, 359], fill=(255, 0, 0))
+    draw.rectangle([427, 0, 639, 359], fill=(0, 0, 255))
+    return img
+
+
+def test_crop_to_vertical_centers_without_face():
+    # 640x360 -> 202x360 centred: left edge at (640-202)//2 = 219,
+    # which is inside the green middle stripe.
+    cropped = thumbnail._crop_to_vertical(_striped_image())
+    assert cropped.size == (202, 360)
+    assert cropped.getpixel((0, 180)) == (0, 255, 0)
+
+
+def test_crop_to_vertical_centers_on_face_and_clamps():
+    img = _striped_image()
+    # Face at x=100 (left/red stripe): window centred on it, clamped
+    # to the left edge -> leftmost pixel is red.
+    cropped = thumbnail._crop_to_vertical(img, center_x=100)
+    assert cropped.size == (202, 360)
+    assert cropped.getpixel((0, 180)) == (255, 0, 0)
+    # Face at x=600 (right/blue stripe): window clamped to the right
+    # edge -> rightmost pixel is blue.
+    cropped = thumbnail._crop_to_vertical(img, center_x=600)
+    assert cropped.getpixel((201, 180)) == (0, 0, 255)
+
+
+def test_crop_to_vertical_leaves_portrait_frames_alone():
+    from PIL import Image
+    img = Image.new("RGB", (360, 640), (255, 0, 0))
+    assert thumbnail._crop_to_vertical(img).size == (360, 640)
+
+
+def test_face_box_none_without_cv2(tmp_path, monkeypatch):
+    # Same simulation as test_largest_face_time_skipped_without_cv2:
+    # no OpenCV means no face centring (the crop falls back to centre)
+    # and no text push-down (the band stays at the top).
+    monkeypatch.setitem(sys.modules, "cv2", None)
+    frame = tmp_path / "frame.jpg"
+    frame.write_bytes(b"not a real image")
+    assert thumbnail._largest_face_box(str(frame)) is None
+
+
+def test_overlay_hook_text_stays_below_face():
+    """With min_y set, the text band starts below the face, not over it."""
+    from PIL import Image
+    img = Image.new("RGB", (608, 1080), (255, 255, 255))
+    out = thumbnail._overlay_hook_text(img, "HOOK TEXT HERE", min_y=300)
+    # Above the band: still white (the face area stays clear).
+    assert out.getpixel((304, 100)) == (255, 255, 255)
+    # Inside the band (just below min_y, away from the glyphs):
+    # the semi-transparent black band darkens the white frame.
+    r, g, b = out.getpixel((304, 315))
+    assert r < 150 and g < 150 and b < 150
+
+
+def test_overlay_hook_text_top_when_no_room_below_face():
+    """When the face is too low for the band to fit below it, the band
+    stays at the top instead of running off the bottom."""
+    from PIL import Image
+    img = Image.new("RGB", (608, 1080), (255, 255, 255))
+    out = thumbnail._overlay_hook_text(img, "HOOK TEXT HERE", min_y=1000)
+    # Top placement (6% of 1080 = 64): the band darkens y ~70.
+    r, g, b = out.getpixel((304, 70))
+    assert r < 150 and g < 150 and b < 150
+
+
+@needs_ffmpeg
+def test_generate_thumbnail_from_16x9_source_is_portrait(tmp_path):
+    # The clean-frame path (bug #4 fix): the source is 16:9 but the
+    # thumbnail must still be 9:16 portrait, with the hook text as the
+    # only text on it.
+    source = _make_solid_video(tmp_path / "source.mp4", "red")
+    rendered = _make_solid_video(tmp_path / "rendered.mp4", "blue")
+    out = tmp_path / "thumb.jpg"
+    generate_thumbnail(str(rendered), "HOOK TEXT HERE", str(out),
+                       peak_time=1.0, frame_source_path=str(source))
+    from PIL import Image
+    img = Image.open(out)
+    assert img.size == (202, 360)
+    assert _corner_pixel_is(out, "red")
+
+
+# --- clean-frame thumbnails: one frame, one text box ---
+
+def _make_solid_video(path, color, duration=2):
+    """A solid-colour mp4 (lavfi color + sine audio)."""
+    cmd = ["ffmpeg", "-y",
+           "-f", "lavfi", "-i", f"color=c={color}:duration={duration}:size=640x360:rate=10",
+           "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration}",
+           "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+           "-shortest", str(path)]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 0, res.stderr[-300:]
+    return path
+
+
+def _corner_pixel_is(image_path, channel):
+    """Bottom-left pixel (far from the top text box) dominant channel."""
+    from PIL import Image
+    img = Image.open(image_path).convert("RGB")
+    r, g, b = img.getpixel((10, img.height - 10))
+    if channel == "red":
+        return r > 150 and r > b + 50
+    return b > 150 and b > r + 50
+
+
+@needs_ffmpeg
+def test_generate_thumbnail_uses_clean_frame_source(tmp_path):
+    # Rendered clip is blue; the clean pre-overlay source is red. The
+    # thumbnail frame must come from the red source, with the hook text
+    # box as the only text on it.
+    source = _make_solid_video(tmp_path / "source.mp4", "red")
+    rendered = _make_solid_video(tmp_path / "rendered.mp4", "blue")
+    out = tmp_path / "thumb.jpg"
+    generate_thumbnail(str(rendered), "HOOK TEXT HERE", str(out),
+                       peak_time=1.0, frame_source_path=str(source))
+    assert out.exists()
+    assert _corner_pixel_is(out, "red")
+
+
+@needs_ffmpeg
+def test_generate_thumbnail_without_frame_source_uses_render(tmp_path):
+    rendered = _make_solid_video(tmp_path / "rendered.mp4", "blue")
+    out = tmp_path / "thumb.jpg"
+    generate_thumbnail(str(rendered), "HOOK TEXT HERE", str(out), peak_time=1.0)
+    assert out.exists()
+    assert _corner_pixel_is(out, "blue")
+
+
+@needs_ffmpeg
+def test_generate_thumbnail_missing_frame_source_falls_back(tmp_path):
+    rendered = _make_solid_video(tmp_path / "rendered.mp4", "blue")
+    out = tmp_path / "thumb.jpg"
+    generate_thumbnail(str(rendered), "HOOK TEXT HERE", str(out), peak_time=1.0,
+                       frame_source_path=str(tmp_path / "gone.mp4"))
+    assert out.exists()
+    assert _corner_pixel_is(out, "blue")
+
+
+# --- hook banner position: face-tracking layouts sit below the facecam ---
+
+def test_caption_card_lower_for_face_tracking_layouts(editor_setup):
+    editor, raw, tmp_path, _, _ = editor_setup
+    from PIL import Image
+
+    def card_top(layout):
+        card = tmp_path / f"card_{layout}.png"
+        editor.generate_screen_caption_card(
+            "XQC was SHOCKED after this happened live", str(card),
+            position="top", layout=layout)
+        bbox = Image.open(card).getbbox()
+        assert bbox is not None
+        return bbox[1]
+
+    # Classic / blurred backdrop: banner near the top (below TikTok tabs).
+    assert card_top("blurred_backdrop") < 500
+    assert card_top("center_crop") < 500
+    # Face-tracking layouts: banner below the facecam zone (y 0-760).
+    assert card_top("speaker_tracking") >= 750
+    assert card_top("camera_switch") >= 750
+    assert card_top("split_screen") >= 750
 
 
 # --- ClipEditor wiring (feature 10 + 9 + 11 integration) ---
@@ -309,14 +481,20 @@ def test_edit_clip_generates_thumbnail_by_default(editor_setup, monkeypatch):
     calls = []
     monkeypatch.setattr(
         thumbnail, "generate_thumbnail",
-        lambda video, hook, out, words=None, peak_time=None: calls.append((video, hook, out)))
+        lambda video, hook, out, words=None, peak_time=None,
+        frame_source_path=None: calls.append(
+            (video, hook, out, frame_source_path)))
     out = tmp_path / "edited.mp4"
     editor.edit_clip(str(raw), str(out), streamer="adinross", layout="center_crop",
                      hook_banner="HOOK TEXT HERE")
     assert len(calls) == 1
-    assert calls[0][0] == str(out)  # thumbnail is made from the rendered clip
+    assert calls[0][0] == str(out)  # thumbnail is made for the rendered clip
     assert calls[0][1] == "HOOK TEXT HERE"
     assert calls[0][2] == str(tmp_path / "edited_thumb.jpg")
+    # ...but its frame comes from the clean pre-overlay source clip, so
+    # the thumbnail's text box never lands on the banner already burned
+    # into the render (one frame, one text box).
+    assert calls[0][3] == str(raw)
     assert any("Thumbnail saved" in msg for _, _, msg in logs)
 
 

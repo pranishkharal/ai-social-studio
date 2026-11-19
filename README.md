@@ -1,6 +1,6 @@
 # 🚀 Kick AI Clip Engine & Autonomous Social Publisher
 
-An ultra-lightweight, automated system to monitor **Kick.com** live streamers, detect viral hype moments and story arcs using AI, auto-crop into **9:16 vertical TikTok/Reels format** with dynamic animated subtitles & hook banners, and auto-publish to social media.
+An ultra-lightweight, automated system to monitor **Kick.com** live streamers, detect viral hype moments and story arcs using AI, auto-crop into **9:16 vertical TikTok/Reels format** with hook banners (subtitles off by default — opt in with `ENABLE_SUBTITLES=true`), and auto-publish to social media.
 
 ---
 
@@ -24,7 +24,7 @@ you opt in via `.env`. See [CHANGELOG.md](CHANGELOG.md) for the full list.
 8. **Earnings tracker + analytics** — Kick-program submissions, CPM earnings, and a feedback loop that recommends your best AI-score threshold.
 
 **Tier 3 — Better clips**
-9. **Dead-space removal** — Whisper word timestamps cut silent gaps; subtitles are remapped to match.
+9. **Dead-space removal** — Whisper word timestamps cut silent gaps; subtitles are remapped to match when subtitles are enabled.
 10. **Auto-thumbnails** — best frame + hook text, saved next to every render.
 11. **Per-streamer profiles** — clip length and layout per streamer (`streamer_profiles.json`).
 12. **Whisper config** — tiny/small/medium, CPU/GPU switch (`WHISPER_MODEL`, `WHISPER_DEVICE`).
@@ -37,7 +37,7 @@ you opt in via `.env`. See [CHANGELOG.md](CHANGELOG.md) for the full list.
 17. **Retry + resume + CI** — checkpoints let a failed clip resume mid-pipeline (`/api/clips/{id}/retry`); GitHub Actions runs the test suite.
 
 **Tier 5 — Rendering upgrades**
-- MediaPipe/YOLO face tracking (Haar fallback), kinetic karaoke subtitles (`SUBTITLE_STYLE=karaoke`), camera-switch + split-screen layouts, Pexels B-roll, background music with sidechain ducking (`BGM_ENABLED=true`), NVENC/AMF/VAAPI encoder auto-detect (verified with a test encode), and an LLM fallback chain (Gemini → local OpenAI-compatible model → heuristic).
+- MediaPipe/YOLO face tracking (Haar fallback), kinetic karaoke subtitles (`SUBTITLE_STYLE=karaoke`, only when subtitles are enabled via `ENABLE_SUBTITLES=true`), camera-switch + split-screen layouts, Pexels B-roll, background music with sidechain ducking (`BGM_ENABLED=true`), NVENC/AMF/VAAPI encoder auto-detect (verified with a test encode), and an LLM fallback chain (Gemini → local OpenAI-compatible model → heuristic).
 
 **Cross-platform + Android phone**
 - Runs on **Windows, macOS and Linux** (same code, `platform_utils.py` handles fonts/paths per OS) — `start.sh` for Mac/Linux, `start.bat`/`start_engine.bat` for Windows, Docker unchanged. The dashboard is **phone-friendly**: open it from your Android browser on the same Wi-Fi (`--host 0.0.0.0`, see below).
@@ -80,7 +80,7 @@ flowchart TD
 - `kick_monitor.py`: Detects live streams with no browser load and maintains a 10-minute rolling buffer.
 - `hype_detector.py`: Measures audio volume spikes in the stream (screams, laughter, hype) in 0.2 seconds.
 - `ai_story_engine.py`: Uses Google Gemini and local Whisper to extract the clip's full story, punchline, viral title, hook banner and captions.
-- `clip_editor.py`: Converts 16:9 horizontal video to 9:16 vertical TikTok format, adds animated word-by-word subtitles and a top banner.
+- `clip_editor.py`: Converts 16:9 horizontal video to 9:16 vertical TikTok format, adds a top hook banner that shows for the first 4 seconds only (then fades out; the Kick bar stays visible), and word-by-word subtitles only when subtitles are enabled.
 - `screen_controller.py`: Playwright-based screen/browser agent that can scrub the Kick player back and forth and auto-upload to TikTok.
 - `web_dashboard.py`: Local FastAPI web control centre (`http://localhost:8500`).
 - `database.py`: SQLite database storing all streamers, detected clips and system logs.
@@ -186,7 +186,8 @@ All settings are grouped in `.env.example` — with every Tier 1–5 feature. Th
 - `AUTO_CLIP_ENABLED=true` — turn on auto-clipping (default: off).
 - `CHAT_HYPE_ENABLED=true` — turn on chat hype (default: off).
 - `DASHBOARD_PASSWORD` or `DASHBOARD_PASSWORD_HASH` — dashboard login (default: open).
-- `SUBTITLE_STYLE=karaoke` — kinetic karaoke subtitles (default: classic).
+- `ENABLE_SUBTITLES=true` — burn subtitles into clips (default: off — Kick clips render with no subtitles; Whisper still transcribes for silence cutting).
+- `SUBTITLE_STYLE=karaoke` — kinetic karaoke subtitles (default: classic; only applies when subtitles are enabled).
 - `BGM_ENABLED=true` + MP3s in `assets/bgm/<mood>/` — background music (default: off).
 - `VIDEO_ENCODER=auto` — NVENC/AMF/VAAPI/libx264 auto-detect (default: auto).
 - `DASHBOARD_HOST=0.0.0.0` + `DASHBOARD_PORT=8500` — open the dashboard from the local network / Android phone (default: this computer only).
@@ -197,7 +198,7 @@ All settings are grouped in `.env.example` — with every Tier 1–5 feature. Th
 1. **Streamer Watchlist**: Add or remove streamers. Their live status, viewers and title show up instantly.
 2. **Instant Clip Trigger**: Extract the last 30s, 45s or 60s clip of any live streamer in 1 click.
 3. **Player Scrub**: Rewind or forward the streamer's stream by 30 seconds.
-4. **Vertical Video Studio**: Watch the finished 9:16 TikTok video directly in the web player (with word-by-word subtitles and top hook banner).
+4. **Vertical Video Studio**: Watch the finished 9:16 TikTok video directly in the web player (with top hook banner; subtitles only if enabled).
 5. **Publish to TikTok**: Publish in 1 click with video and captions auto-filled in TikTok Studio.
 6. **Resource Telemetry**: See real-time CPU and RAM usage at the top of the dashboard to see how light it runs.
 7. **Earnings & Analytics**: Kick programme submissions, CPM earnings and AI-score feedback (which threshold performs best).

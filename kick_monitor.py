@@ -1,13 +1,12 @@
 import os
 import sys
 import time
-import json
-import ssl
 import subprocess
 import threading
-import urllib.request
 from pathlib import Path
 from datetime import datetime
+
+import requests
 
 from config import (
     BASE_DIR, BUFFER_DIR, CLIPS_DIR, CHECK_INTERVAL_SECONDS, 
@@ -17,10 +16,8 @@ from database import update_streamer_status, log_event, add_notification
 
 class KickMonitor:
     def __init__(self):
-        # Verified TLS: kick.com serves a valid public certificate, so there
-        # is no reason to disable verification (previously CERT_NONE, which
-        # left API calls open to interception). See Tier 1 feature 15 notes.
-        self.ssl_ctx = ssl.create_default_context()
+        # requests verifies TLS by default (kick.com serves a valid
+        # public certificate, so there is no reason to disable it).
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "Accept": "application/json",
@@ -30,31 +27,91 @@ class KickMonitor:
         self.known_live = set()
         self.running = False
 
+    def _get_json(self, url: str, attempts: int = 3):
+        """GET a Kick API URL and parse the JSON body.
+
+        Uses requests (not the stdlib urllib): urllib's http.client
+        gets truncated responses (``IncompleteRead``) from Kick's
+        CDN/proxies on this API, while requests handles the same calls
+        reliably. Retries a few times on transient failures so a
+        single hiccup does not mark a live streamer offline. Raises
+        the last error if every attempt fails.
+        """
+        last_error = None
+        for attempt in range(attempts):
+            try:
+                response = requests.get(url, headers=self.headers, timeout=6)
+                response.raise_for_status()
+                return response.json()
+            except Exception as e:  # noqa: BLE001 - retried, then reported by the caller
+                last_error = e
+                if attempt < attempts - 1:
+                    time.sleep(1)
+        raise last_error
+
+    def fetch_playback_url(self, username: str):
+        """Playback (IVS m3u8) URL for a live channel.
+
+        The v2 channel endpoint used to return ``playback_url`` at the
+        top level, but it no longer does so reliably — the working
+        source is GET /api/v2/channels/{slug}/livestream, which returns
+        ``{"data": {"playback_url": ...}}``. Returns None when the
+        endpoint errors or the channel is offline.
+        """
+        url = f"https://kick.com/api/v2/channels/{username.strip().lower()}/livestream"
+        try:
+            data = self._get_json(url)
+            return (data.get("data") or {}).get("playback_url")
+        except Exception as e:
+            log_event("WARNING", "KickMonitor",
+                      f"Failed fetching livestream for {username}: {e}")
+            return None
+
+    def _ivs_input_args(self):
+        """ffmpeg input options for Kick's AWS IVS playback URLs.
+
+        IVS returns 400 to bare ffmpeg requests; it needs a Referer
+        header plus a browser User-Agent. Must be placed before -i.
+        """
+        return [
+            "-headers", "Referer: https://kick.com/",
+            "-user_agent", self.headers["User-Agent"],
+        ]
+
     def fetch_channel_info(self, username: str) -> dict:
         """Fetches channel status, metadata, and AWS IVS playback URL directly with 0% CPU strain."""
         url = f"https://kick.com/api/v2/channels/{username.strip().lower()}"
         try:
-            req = urllib.request.Request(url, headers=self.headers)
-            with urllib.request.urlopen(req, context=self.ssl_ctx, timeout=6) as resp:
-                data = json.loads(resp.read().decode())
-                
-                is_live = data.get("livestream") is not None
-                livestream = data.get("livestream") or {}
-                
-                result = {
-                    "username": username.lower(),
-                    "is_live": 1 if is_live else 0,
-                    "channel_id": data.get("id"),
-                    "chatroom_id": data.get("chatroom", {}).get("id"),
-                    "title": livestream.get("session_title", data.get("user", {}).get("bio", "")),
-                    "category": livestream.get("categories", [{}])[0].get("name") if livestream.get("categories") else "Gaming",
-                    "viewer_count": livestream.get("viewer_count", 0),
-                    "playback_url": data.get("playback_url"),
-                    "last_checked": datetime.now().isoformat()
-                }
-                update_streamer_status(result)
-                self.streamer_cache[username.lower()] = result
-                return result
+            data = self._get_json(url)
+
+            is_live = data.get("livestream") is not None
+            livestream = data.get("livestream") or {}
+
+            # Playback URL: the livestream endpoint is the reliable
+            # source; fall back to the channel payload's copy when
+            # it happens to be present (Kick still returns it
+            # sometimes) so a livestream-endpoint hiccup does not
+            # leave a live stream unrecordable.
+            playback_url = None
+            if is_live:
+                playback_url = self.fetch_playback_url(username)
+                if not playback_url:
+                    playback_url = data.get("playback_url")
+
+            result = {
+                "username": username.lower(),
+                "is_live": 1 if is_live else 0,
+                "channel_id": data.get("id"),
+                "chatroom_id": data.get("chatroom", {}).get("id"),
+                "title": livestream.get("session_title", data.get("user", {}).get("bio", "")),
+                "category": livestream.get("categories", [{}])[0].get("name") if livestream.get("categories") else "Gaming",
+                "viewer_count": livestream.get("viewer_count", 0),
+                "playback_url": playback_url,
+                "last_checked": datetime.now().isoformat()
+            }
+            update_streamer_status(result)
+            self.streamer_cache[username.lower()] = result
+            return result
         except Exception as e:
             # Handle rate-limit or offline errors gracefully
             log_event("WARNING", "KickMonitor", f"Failed fetching {username}: {e}")
@@ -86,8 +143,10 @@ class KickMonitor:
         
         # FFmpeg stream-copy command with rolling segment wrap
         # -segment_wrap 10 keeps exactly 10 rolling segments (10 minutes)
+        # IVS needs Referer + browser UA headers (see _ivs_input_args).
         cmd = [
             "ffmpeg", "-y",
+            *self._ivs_input_args(),
             "-reconnect", "1",
             "-reconnect_streamed", "1",
             "-reconnect_delay_max", "5",
@@ -197,8 +256,10 @@ class KickMonitor:
         playback_url = info.get("playback_url")
         
         if playback_url:
+            # IVS needs Referer + browser UA headers (see _ivs_input_args).
             cmd = [
                 "ffmpeg", "-y",
+                *self._ivs_input_args(),
                 "-i", playback_url,
                 "-t", str(duration_seconds),
                 "-c", "copy",

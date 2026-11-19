@@ -4,7 +4,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from config import EDITED_DIR, SUBTITLES_DIR, SUBTITLE_STYLE, BGM_ENABLED, BROLL_ENABLED
+from config import (EDITED_DIR, SUBTITLES_DIR, SUBTITLE_STYLE,
+                    SUBTITLES_ENABLED, BGM_ENABLED, BROLL_ENABLED)
 from kick_monitor import KickMonitor
 from hype_detector import HypeDetector
 from ai_story_engine import AIStoryEngine
@@ -30,9 +31,10 @@ class ClipPipeline:
         except Exception as e:
             log_event("WARNING", "Pipeline", f"Checkpoint '{step}' failed for clip #{clip_id}: {e}")
 
-    def process_moment(self, streamer: str, duration: int = None, raw_clip_path: str = None, 
+    def process_moment(self, streamer: str, duration: int = None, raw_clip_path: str = None,
                        mirror: bool = True, hdr_sharpness: bool = True, layout: str = None,
-                       auto_captions: bool = False, caption_position: str = "top",
+                       subtitles: bool = None, auto_captions: bool = None,
+                       caption_position: str = "top",
                        custom_caption: str = None) -> dict:
         """
         Full Autonomous Pipeline with Prestige Clipping Rules:
@@ -45,7 +47,21 @@ class ClipPipeline:
           profile decides the clip length (default 25s)
         - Silence trimming + subtitle remap, streamer detection, BGM/B-roll
           and checkpoints for resume (see _finish_clip / resume_clip)
+        - Subtitles: Kick live-stream clips are rendered WITHOUT burned-in
+          subtitles by default. Pass subtitles=True (or auto_captions=True,
+          the older name kept for the dashboard) to opt in, or set
+          ENABLE_SUBTITLES=true in .env. Whisper still transcribes every
+          clip — silence cutting needs the word timestamps — the words
+          just are not drawn on the video unless subtitles are enabled.
+          Karaoke style (SUBTITLE_STYLE=karaoke) only applies when
+          subtitles are enabled.
         """
+        # Subtitle resolution: an explicit argument wins (subtitles= first,
+        # then the older auto_captions= name); otherwise ENABLE_SUBTITLES
+        # decides (default off).
+        if subtitles is None:
+            subtitles = auto_captions if auto_captions is not None else SUBTITLES_ENABLED
+        auto_captions = bool(subtitles)
         # Per-streamer profile (Tier 3): resolve the clip length before
         # acquiring footage.
         if duration is None:
@@ -166,10 +182,12 @@ class ClipPipeline:
         except Exception as e:
             log_event("WARNING", "Pipeline", f"Streamer detection failed for clip #{clip_id}: {e}")
 
-        # 5. Generate Subtitles (Only if enabled, default is OFF).
+        # 5. Generate Subtitles (only when subtitles are explicitly
+        # enabled — see process_moment: off by default for Kick clips).
         # Silence trimming (inside edit_clip) shifts timings, so the words
         # are remapped to trimmed-clip time first — otherwise the
-        # subtitles drift ahead of the audio.
+        # subtitles drift ahead of the audio. Karaoke style only applies
+        # here, i.e. only when subtitles are enabled.
         ass_path = str(SUBTITLES_DIR / f"clip_{clip_id}.ass")
         if auto_captions and words:
             try:

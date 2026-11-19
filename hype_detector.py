@@ -19,27 +19,40 @@ REACTION_WORDS = {
 
 class HypeDetector:
     def __init__(self):
-        self.volume_regex = re.compile(r"max_volume:\s*(-?[\d\.]+)\s*dB.*?mean_volume:\s*(-?[\d\.]+)\s*dB", re.DOTALL)
+        # ffmpeg 8 prints mean_volume BEFORE max_volume; older ffmpeg
+        # printed max first. Two independent searches work with either
+        # order — a single max-then-mean regex silently never matches
+        # on ffmpeg 8 and every clip falls back to score 10.0.
+        self.max_volume_regex = re.compile(r"max_volume:\s*(-?[\d.]+)\s*dB")
+        self.mean_volume_regex = re.compile(r"mean_volume:\s*(-?[\d.]+)\s*dB")
 
     def analyze_audio_energy(self, video_path: str) -> dict:
-        """Runs fast FFmpeg volume detection on a video clip (< 0.2s elapsed)."""
+        """Runs fast FFmpeg volume detection on a video clip.
+
+        Audio-only (``-vn``): volumedetect needs no video, and decoding
+        a 1080p60 video stream to null is slow enough that the analysis
+        timed out and fell back to 10.0 on a loaded machine. Audio-only
+        typically takes well under a second even for a 30 s clip.
+        """
         if not os.path.exists(video_path):
             return {"score": 0.0, "is_hype": False, "reason": "file_not_found"}
 
         cmd = [
             "ffmpeg", "-i", video_path,
+            "-vn",  # audio only — see docstring
             "-af", "volumedetect",
             "-f", "null", "-"
         ]
-        
+
         try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             output = res.stderr
-            match = self.volume_regex.search(output)
-            
-            if match:
-                max_vol = float(match.group(1))
-                mean_vol = float(match.group(2))
+            max_match = self.max_volume_regex.search(output)
+            mean_match = self.mean_volume_regex.search(output)
+
+            if max_match and mean_match:
+                max_vol = float(max_match.group(1))
+                mean_vol = float(mean_match.group(1))
                 vol_jump = max_vol - mean_vol
                 
                 score = 0.0
