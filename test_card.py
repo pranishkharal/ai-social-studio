@@ -1,4 +1,3 @@
-import os
 from PIL import Image, ImageDraw, ImageFont
 import textwrap
 
@@ -10,10 +9,8 @@ def generate_tiktok_screen_caption_card(text: str, output_path: str = "caption_c
     canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(canvas)
     
-    font_path = "C:/Windows/Fonts/arialbd.ttf"
-    if not os.path.exists(font_path):
-        font_path = "C:/Windows/Fonts/arial.ttf"
-    font = ImageFont.truetype(font_path, 40)
+    from platform_utils import load_font
+    font = load_font(40, bold=True)
     
     # Strip emojis or replace for font rendering if needed, or render cleanly
     import re

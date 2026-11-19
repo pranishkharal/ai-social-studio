@@ -4,13 +4,95 @@ import re
 from pathlib import Path
 from config import BASE_DIR, GEMINI_API_KEY, GEMINI_MODEL, SUBTITLES_DIR
 from database import log_event
+from retry_utils import retry
+from llm_providers import generate_metadata_with_fallback
 
-# Local speech-to-text fallback
+# Local speech-to-text (faster-whisper), loaded LAZILY on first use.
+# Importing this module must never download or load a model -- the model
+# is created on the first transcribe_clip() call and then cached.
+# Configured via env vars (see _whisper_config); defaults keep the
+# historical behaviour: tiny model, CPU, int8, beam size 1.
 try:
     from faster_whisper import WhisperModel
-    whisper_model = WhisperModel("tiny", device="cpu", compute_type="int8")
-except Exception as e:
-    whisper_model = None
+except Exception:
+    WhisperModel = None
+
+# Backwards-compatible handle: None until the first lazy load, then the
+# loaded model. Prefer get_whisper_model() -- this is only kept so code
+# that referenced the old module-level variable keeps working.
+whisper_model = None
+_whisper_model_key = None
+
+KNOWN_WHISPER_MODELS = {"tiny", "base", "small", "medium", "large",
+                        "large-v2", "large-v3", "large-v3-turbo", "turbo"}
+
+
+def _whisper_config():
+    """
+    Whisper settings from env vars:
+        WHISPER_MODEL         Model size: tiny/small/medium/... (default "tiny")
+        WHISPER_DEVICE        "cpu" (default) or "cuda"
+        WHISPER_BEAM_SIZE     Beam size for decoding (default 1)
+        WHISPER_COMPUTE_TYPE  ctranslate2 compute type (default "int8")
+    """
+    model = os.getenv("WHISPER_MODEL", "tiny").strip().lower() or "tiny"
+    if model not in KNOWN_WHISPER_MODELS:
+        log_event("WARNING", "AIStoryEngine",
+                  f"Unknown WHISPER_MODEL '{model}'; falling back to 'tiny'")
+        model = "tiny"
+    device = os.getenv("WHISPER_DEVICE", "cpu").strip().lower() or "cpu"
+    try:
+        beam_size = int(os.getenv("WHISPER_BEAM_SIZE", "1"))
+    except ValueError:
+        beam_size = 1
+    beam_size = max(1, beam_size)
+    compute_type = os.getenv("WHISPER_COMPUTE_TYPE", "int8").strip() or "int8"
+    return {"model": model, "device": device,
+            "beam_size": beam_size, "compute_type": compute_type}
+
+
+def get_whisper_model():
+    """
+    Return the cached Whisper model, loading it on first call.
+
+    WHISPER_DEVICE=cuda attempts the GPU and falls back to CPU with a
+    logged warning when CUDA is unavailable (no GPU, no CUDA build, or a
+    compute type the GPU build rejects). Returns None when faster-whisper
+    is not installed or the model cannot be loaded at all.
+    """
+    global whisper_model, _whisper_model_key
+    cfg = _whisper_config()
+    key = (cfg["model"], cfg["device"], cfg["compute_type"])
+    if whisper_model is not None and _whisper_model_key == key:
+        return whisper_model
+
+    if WhisperModel is None:
+        return None
+
+    device = cfg["device"]
+    try:
+        model = WhisperModel(cfg["model"], device=device,
+                             compute_type=cfg["compute_type"])
+    except Exception as e:
+        if device == "cuda":
+            log_event("WARNING", "AIStoryEngine",
+                      f"CUDA Whisper load failed ({e}); falling back to CPU")
+            try:
+                model = WhisperModel(cfg["model"], device="cpu",
+                                     compute_type=cfg["compute_type"])
+                device = "cpu"
+            except Exception as e2:
+                log_event("ERROR", "AIStoryEngine",
+                          f"Whisper model load failed on CPU too: {e2}")
+                return None
+        else:
+            log_event("ERROR", "AIStoryEngine",
+                      f"Whisper model load failed: {e}")
+            return None
+
+    whisper_model = model
+    _whisper_model_key = (cfg["model"], device, cfg["compute_type"])
+    return model
 
 # Gemini client
 gemini_client = None
@@ -59,39 +141,51 @@ class AIStoryEngine:
 
     def transcribe_clip(self, video_path: str) -> dict:
         """Transcribes dialogue and extracts word-level timestamps using faster-whisper."""
-        if not whisper_model or not os.path.exists(video_path):
+        model = get_whisper_model()
+        if model is None or not os.path.exists(video_path):
             return {"full_text": "", "words": []}
-            
+
+        beam_size = _whisper_config()["beam_size"]
         try:
-            segments, info = whisper_model.transcribe(video_path, beam_size=1, word_timestamps=True)
-            words = []
-            full_text_pieces = []
-            
-            for seg in segments:
-                full_text_pieces.append(seg.text)
-                if hasattr(seg, "words") and seg.words:
-                    for w in seg.words:
-                        cleaned_word = self.prestige_sanitize(w.word.strip())
-                        words.append({
-                            "word": cleaned_word,
-                            "start": round(w.start, 2),
-                            "end": round(w.end, 2)
-                        })
-                else:
-                    words.append({
-                        "word": self.prestige_sanitize(seg.text.strip()),
-                        "start": round(seg.start, 2),
-                        "end": round(seg.end, 2)
-                    })
-                    
-            return {
-                "full_text": " ".join(full_text_pieces).strip(),
-                "words": words,
-                "language": info.language
-            }
+            return self._transcribe_attempt(model, video_path, beam_size)
         except Exception as e:
             log_event("ERROR", "AIStoryEngine", f"Whisper transcription failed: {e}")
             return {"full_text": "", "words": []}
+
+    @retry(max_attempts=2)
+    def _transcribe_attempt(self, model, video_path, beam_size):
+        """One Whisper transcription attempt.
+
+        Retried once (via @retry) on transient failure — e.g. a flaky
+        model load or a locked file — before transcribe_clip falls back
+        to an empty transcript.
+        """
+        segments, info = model.transcribe(video_path, beam_size=beam_size, word_timestamps=True)
+        words = []
+        full_text_pieces = []
+
+        for seg in segments:
+            full_text_pieces.append(seg.text)
+            if hasattr(seg, "words") and seg.words:
+                for w in seg.words:
+                    cleaned_word = self.prestige_sanitize(w.word.strip())
+                    words.append({
+                        "word": cleaned_word,
+                        "start": round(w.start, 2),
+                        "end": round(w.end, 2)
+                    })
+            else:
+                words.append({
+                    "word": self.prestige_sanitize(seg.text.strip()),
+                    "start": round(seg.start, 2),
+                    "end": round(seg.end, 2)
+                })
+
+        return {
+            "full_text": " ".join(full_text_pieces).strip(),
+            "words": words,
+            "language": info.language
+        }
 
     def analyze_story_and_generate_metadata(self, streamer: str, transcript: str, duration: float, category: str = "Gaming", hype_score: float = 75.0) -> dict:
         """
@@ -100,12 +194,43 @@ class AIStoryEngine:
         - Computes 0-100 AI Score & Selection Reason
         - Multi-Platform Metadata: TikTok, YouTube Shorts, Instagram Reels
         - Prestige Formula Captions & Capitalized Trigger Words
+        - Provider chain (Tier 5): Gemini -> OpenAI-compatible local
+          model (LM Studio / vLLM / NVIDIA NIM) -> heuristic fallback.
+          The winning provider is recorded as "llm_provider".
         """
         sanitized_transcript = self.prestige_sanitize(transcript)
 
-        if gemini_client and sanitized_transcript.strip():
-            categories_str = ", ".join([f'"{c}"' for c in PRD_CATEGORIES])
-            prompt = f"""
+        if not sanitized_transcript.strip():
+            # No dialogue to analyze — heuristic fallback only.
+            return self._heuristic_metadata(streamer, sanitized_transcript, hype_score)
+
+        prompt = self._build_analysis_prompt(
+            streamer, category, duration, hype_score, sanitized_transcript)
+
+        def gemini_fn(_prompt):
+            if gemini_client is None:
+                raise RuntimeError("Gemini client not configured")
+            response = gemini_client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=_prompt,
+            )
+            raw_text = response.text.strip()
+            if raw_text.startswith("```"):
+                raw_text = raw_text.split("```")[1]
+                if raw_text.startswith("json"):
+                    raw_text = raw_text[4:]
+            data = json.loads(raw_text.strip())
+            return self._sanitize_metadata(data)
+
+        def heuristic_fn(_prompt):
+            return self._heuristic_metadata(streamer, sanitized_transcript, hype_score)
+
+        return generate_metadata_with_fallback(prompt, gemini_fn, heuristic_fn)
+
+    def _build_analysis_prompt(self, streamer, category, duration, hype_score, sanitized_transcript):
+        """The story-analysis prompt, shared by every LLM provider."""
+        categories_str = ", ".join([f'"{c}"' for c in PRD_CATEGORIES])
+        return f"""
 You are the lead editor and AI content analyst for AI Social Studio v1.0 and @prestigeclipn.
 Analyze this Kick live stream moment:
 
@@ -153,30 +278,29 @@ Return ONLY a valid JSON object matching this schema:
   "hashtags": "#{streamer.lower()} #clips #fyp"
 }}
 """
-            try:
-                response = gemini_client.models.generate_content(
-                    model=GEMINI_MODEL,
-                    contents=prompt,
-                )
-                raw_text = response.text.strip()
-                if raw_text.startswith("```"):
-                    raw_text = raw_text.split("```")[1]
-                    if raw_text.startswith("json"):
-                        raw_text = raw_text[4:]
-                data = json.loads(raw_text.strip())
-                data["viral_title"] = self.prestige_sanitize(data.get("viral_title", ""))
-                screen_cap = data.get("screen_caption") or data.get("hook_banner", "")
-                data["hook_banner"] = self.prestige_sanitize(screen_cap)
-                data["screen_caption"] = data["hook_banner"]
-                data["tiktok_caption"] = self.prestige_sanitize(data.get("tiktok_caption", ""))
-                data["blue_comment"] = self.prestige_sanitize(data.get("blue_comment", ""))
-                if data.get("category") not in PRD_CATEGORIES:
-                    data["category"] = "Streamer Reactions"
-                return data
-            except Exception as e:
-                log_event("WARNING", "AIStoryEngine", f"Gemini story analysis error: {e}")
 
-        # Prestige Live Data Heuristic Fallback
+    def _sanitize_metadata(self, data):
+        """Prestige sanitizer + category validation for LLM metadata.
+
+        Shared by every provider in the fallback chain so Gemini and the
+        local model get identical post-processing.
+        """
+        data["viral_title"] = self.prestige_sanitize(data.get("viral_title", ""))
+        screen_cap = data.get("screen_caption") or data.get("hook_banner", "")
+        data["hook_banner"] = self.prestige_sanitize(screen_cap)
+        data["screen_caption"] = data["hook_banner"]
+        data["tiktok_caption"] = self.prestige_sanitize(data.get("tiktok_caption", ""))
+        data["blue_comment"] = self.prestige_sanitize(data.get("blue_comment", ""))
+        if data.get("category") not in PRD_CATEGORIES:
+            data["category"] = "Streamer Reactions"
+        return data
+
+    def _heuristic_metadata(self, streamer, sanitized_transcript, hype_score):
+        """Prestige Live Data Heuristic Fallback — keyword-driven metadata.
+
+        Always available locally; used when no LLM provider answers (or
+        when the transcript is empty).
+        """
         lower_t = sanitized_transcript.lower()
         if any(w in lower_t for w in ["cry", "sad", "break up", "heartbroken", "anniversary"]):
             cat = "Angry or Emotional Reactions"
@@ -234,7 +358,8 @@ Return ONLY a valid JSON object matching this schema:
             "youtube_description": f"Watch what happened with {streamer} on Kick! Like and subscribe for more viral stream moments. #{streamer.lower()} #kickclips #shorts",
             "instagram_caption": f"Bro really could not believe this happened live… 💀 #{streamer.lower()} #reels #explore",
             "blue_comment": f"Did {streamer} actually mean this or was it just for the stream? Let's settle this in comments 👇",
-            "hashtags": f"#{streamer.lower()} #clips #fyp"
+            "hashtags": f"#{streamer.lower()} #clips #fyp",
+            "llm_provider": "heuristic",
         }
 
     def generate_ass_subtitles(self, words: list, output_ass_path: str, video_width: int = 1080, video_height: int = 1920) -> str:
