@@ -1,0 +1,55 @@
+# ai-social-studio — Python dependencies.
+# Derived from the imports actually used by the code in this repo.
+# Install:  pip install -r requirements.txt
+# Python 3.11+ (see .github/workflows/ci.yml for the tested versions).
+
+# Web dashboard (web_dashboard.py, main.py)
+fastapi>=0.110
+uvicorn>=0.29
+jinja2>=3.1
+pydantic>=2.6
+
+# Config / system
+python-dotenv>=1.0
+psutil>=5.9
+
+# Image + video processing (clip_editor.py, kick_program.py, speaker_tracker.py)
+Pillow>=10.0
+numpy>=1.26
+opencv-python-headless>=4.9
+
+# AI: transcription + story generation (ai_story_engine.py)
+faster-whisper>=1.0
+google-genai>=1.0
+
+# Browser automation for TikTok upload (screen_controller.py)
+playwright>=1.44
+
+# Live chat hype via Kick's Pusher websocket (chat_hype.py)
+websocket-client>=1.8
+
+# YouTube Shorts uploader (youtube_uploader.py)
+google-api-python-client>=2.0
+google-auth-oauthlib>=1.2
+
+# ---------------------------------------------------------------------------
+# Optional — only needed for specific features, not the core engine.
+# Uncomment if you need them:
+#
+# pywebview>=5.0   # desktop_app.py: native Windows desktop window (guarded
+#                  # import; the app falls back to the browser without it)
+# mediapipe>=0.10  # speaker_tracker.py: primary face-tracking backend
+#                  # (FACE_TRACKER_BACKEND=mediapipe/auto). Without it the
+#                  # tracker falls back to YOLO, then Haar cascades.
+# ultralytics>=8.0 # speaker_tracker.py: YOLO face-tracking backend
+#                  # (FACE_TRACKER_BACKEND=yolo/auto). Without it the
+#                  # tracker falls back to Haar cascades.
+# face_recognition>=1.3  # streamer_detection.py: face recognition against
+#                        # FACE_REFERENCE_DIR photos. Without it, detection
+#                        # uses transcript mentions + face counts only.
+# curl-cffi>=0.7   # scratch_parse_tiktok.py (one-off analysis script)
+#
+# NOTE: python-multipart is intentionally NOT listed: nothing in the codebase
+# uses FastAPI Form/File uploads (the login form in auth.py is parsed with
+# the stdlib urllib.parse instead). Add it if a form endpoint is introduced.
+# ---------------------------------------------------------------------------

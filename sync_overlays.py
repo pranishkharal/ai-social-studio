@@ -3,7 +3,7 @@ import json
 import os
 from pathlib import Path
 
-overlay_dir = Path(r"D:\kick-ai-clip-engine\overlays")
+overlay_dir = Path(__file__).resolve().parent / "overlays"
 overlay_dir.mkdir(parents=True, exist_ok=True)
 
 try:

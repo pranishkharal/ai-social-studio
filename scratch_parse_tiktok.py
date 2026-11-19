@@ -1,8 +1,10 @@
 import re
 import json
+from pathlib import Path
 from curl_cffi import requests
 
-with open(r'D:\kick-ai-clip-engine\static\tiktok_page.html', 'r', encoding='utf-8') as f:
+html_path = Path(__file__).resolve().parent / "static" / "tiktok_page.html"
+with open(html_path, 'r', encoding='utf-8') as f:
     html = f.read()
 
 m = re.search(r'<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>', html, re.DOTALL)

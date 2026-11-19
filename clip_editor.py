@@ -2,19 +2,97 @@ import os
 import sys
 import subprocess
 from pathlib import Path
-from config import EDITED_DIR, VIDEO_WIDTH, VIDEO_HEIGHT
+from config import EDITED_DIR, VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_ENCODER
 from database import log_event
 from kick_program import generate_kick_watermark
+from retry_utils import retry
+
+
+def resolve_font_path(preferred_names):
+    """
+    Cross-platform font lookup: Windows, macOS and Linux font folders
+    (see platform_utils.find_font). Returns the first existing path as a
+    string, or None when no candidate font is installed. Windows names
+    fall back to platform equivalents (DejaVu / Liberation / Noto on
+    Linux, Arial / Helvetica on macOS).
+    """
+    from platform_utils import find_font
+    return find_font(preferred_names)
+
+
+def load_font(size, bold=True, emoji=False):
+    """
+    Load a Pillow font cross-platform: Windows fonts first, then macOS
+    and Linux font dirs, then Pillow's built-in default font. Never
+    crashes when no font file is installed (falls back to the default
+    font). Emoji requests use the colour-emoji font when one is
+    installed (Segoe UI Emoji / Apple Color Emoji / Noto Color Emoji).
+    """
+    from PIL import ImageFont
+
+    if emoji:
+        from platform_utils import find_emoji_font
+        emoji_path = find_emoji_font()
+        if emoji_path:
+            try:
+                return ImageFont.truetype(emoji_path, size)
+            except Exception:
+                pass
+        # No colour-emoji font: fall through to the regular bold font.
+    preferred = ["arialbd.ttf", "arial.ttf", "impact.ttf"] if bold \
+        else ["arial.ttf", "arialbd.ttf"]
+    font_path = resolve_font_path(preferred)
+    if font_path:
+        try:
+            return ImageFont.truetype(font_path, size)
+        except Exception:
+            pass
+    # Final fallback: Pillow's built-in default font (always available).
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:  # older Pillow: load_default() takes no size
+        return ImageFont.load_default()
+
+
+def resolve_fonts_dir():
+    """
+    Font directory for ffmpeg's subtitles filter: the first existing
+    platform font directory (Windows Fonts, macOS Fonts, or a Linux
+    truetype dir), else None (filter then omits fontsdir and ffmpeg
+    uses its default fontconfig lookup).
+    """
+    from platform_utils import font_directories
+    for d in font_directories():
+        if d.is_dir():
+            return str(d)
+    return None
+
+
+def _probe_duration(path):
+    """Clip duration in seconds via ffprobe, or None when unavailable."""
+    try:
+        res = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, timeout=30,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
+        return float(res.stdout.strip())
+    except Exception:
+        return None
+
 
 class ClipEditor:
     def __init__(self):
         EDITED_DIR.mkdir(parents=True, exist_ok=True)
-        self.font_path = "C:/Windows/Fonts/impact.ttf"
-        if not os.path.exists(self.font_path):
-            self.font_path = "C:/Windows/Fonts/arial.ttf"
+        # Cross-platform: may be None on a system with no matching font;
+        # generate_screen_caption_card falls back to Pillow's default.
+        self.font_path = resolve_font_path(["impact.ttf", "arial.ttf"])
 
     def escape_path(self, path: str) -> str:
-        """Escapes Windows path for FFmpeg filter syntax."""
+        """Escapes a filesystem path for FFmpeg filter syntax: backslashes
+        become forward slashes and a Windows drive-letter colon is escaped.
+        A POSIX path passes through unchanged."""
         p = str(Path(path).resolve()).replace("\\", "/")
         if len(p) > 1 and p[1] == ":":
             p = p[0] + "\\:" + p[2:]
@@ -36,13 +114,8 @@ class ClipEditor:
         canvas = Image.new("RGBA", (VIDEO_WIDTH, VIDEO_HEIGHT), (0, 0, 0, 0))
         draw = ImageDraw.Draw(canvas)
         
-        font_main_path = "C:/Windows/Fonts/arialbd.ttf"
-        if not os.path.exists(font_main_path):
-            font_main_path = "C:/Windows/Fonts/arial.ttf"
-        font_main = ImageFont.truetype(font_main_path, 38)
-
-        font_emoji_path = "C:/Windows/Fonts/seguiemj.ttf"
-        font_emoji = ImageFont.truetype(font_emoji_path, 36) if os.path.exists(font_emoji_path) else font_main
+        font_main = load_font(38, bold=True)
+        font_emoji = load_font(36, emoji=True)
 
         def measure_char(c):
             if ord(c) > 0x2000:
@@ -131,10 +204,18 @@ class ClipEditor:
         canvas.save(output_path, "PNG")
         return output_path
 
+    @retry(max_attempts=2, retryable_exceptions=(RuntimeError,))
     def edit_clip(self, raw_clip_path: str, output_path: str, streamer: str = "adinross",
-                  layout: str = "blurred_backdrop", ass_subtitle_path: str = None, 
+                  layout: str = None, ass_subtitle_path: str = None,
                   hook_banner: str = None, mirror: bool = True, hdr_sharpness: bool = True,
-                  auto_captions: bool = False, caption_position: str = "top") -> str:
+                  auto_captions: bool = False, caption_position: str = "top",
+                  words: list = None, silence_trim: bool = True,
+                  generate_thumbnail: bool = True, bgm: bool = False,
+                  bgm_mood: str = None, category: str = None,
+                  broll: bool = False, broll_query: str = None,
+                  speaker_segments: list = None, trajectories: dict = None,
+                  split_speakers: list = None, active_speaker: str = None,
+                  encoder: str = None) -> str:
         """
         Converts horizontal stream clip to 9:16 vertical TikTok clip (1080x1920)
         Adheres 100% to Official Kick Clipping Program Rules & prxno standard:
@@ -144,9 +225,140 @@ class ClipEditor:
         - HDR Sharpness & Contrast Boost
         - Clean On-Screen Text (Top Hook Banner)
         - Auto-captions OFF by default (clean cinematic look)
+        - Dead-space removal: when Whisper word timings are passed via
+          ``words`` (and silence_trim is True), long silent gaps are cut
+          before rendering. Behaviour is identical when words is None.
+        - Auto-thumbnail: a JPG (same basename + _thumb.jpg) is saved next
+          to the render unless generate_thumbnail is False. Thumbnail
+          failures never fail the render.
+        - Per-streamer profiles: when layout is None, the layout comes
+          from the streamer's profile (streamer_profiles.json), falling
+          back to blurred_backdrop.
+        - Hardware encoding (Tier 5): the encoder is auto-detected
+          (NVENC > AMF > VAAPI > libx264) with a runtime test-encode;
+          override with the VIDEO_ENCODER env var or encoder=....
+        - Background music (Tier 5): bgm=True mixes a track from
+          assets/bgm/<mood>/ under the speech with sidechain ducking;
+          the mood comes from bgm_mood or the clip category. A failed
+          BGM render retries once without music.
+        - B-roll (Tier 5): broll=True cuts a Pexels stock clip in
+          mid-clip (needs PEXELS_API_KEY). Skipped silently without one.
+        - Camera-switch / split-screen layouts (Tier 5): layout=
+          "camera_switch" (needs speaker_segments + trajectories) or
+          "split_screen" (needs split_speakers); both fall back to
+          speaker_tracking when the speaker data is missing.
+        - Retried once on ffmpeg failure (@retry); the pipeline's
+          resume_clip covers longer outages.
         """
         if not os.path.exists(raw_clip_path):
             raise FileNotFoundError(f"Source clip not found: {raw_clip_path}")
+
+        # 0a. Per-streamer profile layout when none was requested.
+        if layout is None:
+            try:
+                from streamer_profiles import get_profile
+                layout = get_profile(streamer).get("layout") or "blurred_backdrop"
+            except Exception as e:
+                log_event("WARNING", "ClipEditor", f"Profile lookup failed, using blurred_backdrop: {e}")
+                layout = "blurred_backdrop"
+
+        # 0b. Dead-space removal: pre-cut long silences using Whisper word
+        # timings when provided. Behaviour is identical when words is None.
+        source_path = raw_clip_path
+        temp_silence_path = None
+        if silence_trim and words:
+            try:
+                import time
+                from silence_cutter import cut_silence
+                temp_silence_path = str(EDITED_DIR / f"temp_nosilence_{streamer}_{int(time.time()*1000)}.mp4")
+                _, seconds_removed = cut_silence(raw_clip_path, words, temp_silence_path)
+                if seconds_removed > 0:
+                    source_path = temp_silence_path
+                    log_event("INFO", "ClipEditor", f"Silence trim removed {seconds_removed}s of dead space")
+                else:
+                    # Nothing to cut: drop the untouched copy, use the original.
+                    try:
+                        os.remove(temp_silence_path)
+                    except OSError:
+                        pass
+                    temp_silence_path = None
+            except Exception as e:
+                log_event("WARNING", "ClipEditor", f"Silence trim failed, using original clip: {e}")
+                source_path = raw_clip_path
+                if temp_silence_path and os.path.exists(temp_silence_path):
+                    try:
+                        os.remove(temp_silence_path)
+                    except OSError:
+                        pass
+                temp_silence_path = None
+
+        # 0c. Encoder selection (Tier 5): VIDEO_ENCODER env override or
+        # the edit_clip(encoder=...) arg wins; otherwise auto-detect with
+        # a runtime test-encode, so a listed-but-broken hardware encoder
+        # (e.g. NVENC with no GPU) falls through to a working one.
+        encoder_choice = (encoder or VIDEO_ENCODER or "auto").strip().lower()
+        vaapi_input = False
+        codec_args = []
+        try:
+            from encoder import ENCODER_ARGS, detect_encoder
+            if encoder_choice not in ("auto", ""):
+                codec = encoder_choice
+                codec_args = list(ENCODER_ARGS.get(codec, []))
+                vaapi_input = codec == "h264_vaapi"
+            else:
+                codec, codec_args = detect_encoder(verify=True)
+                vaapi_input = codec == "h264_vaapi"
+        except Exception as e:
+            log_event("WARNING", "ClipEditor", f"Encoder detection failed, using libx264: {e}")
+            codec, codec_args = "libx264", ["-preset", "veryfast", "-crf", "21"]
+        log_event("INFO", "ClipEditor", f"Encoder: {codec} {' '.join(codec_args)}")
+
+        # 0d. Background music (Tier 5): pick a track for the clip's
+        # mood. No MP3s in assets/bgm/<mood>/ means no music — the
+        # render continues unchanged.
+        bgm_path = None
+        if bgm:
+            try:
+                from bgm import pick_bgm, mood_for_category
+                mood = bgm_mood or mood_for_category(category)
+                bgm_path = pick_bgm(mood)
+                if bgm_path:
+                    log_event("INFO", "ClipEditor", f"BGM selected ({mood}): {bgm_path}")
+            except Exception as e:
+                log_event("WARNING", "ClipEditor", f"BGM selection failed, continuing without music: {e}")
+
+        # 0e. B-roll (Tier 5): fetch a stock cutaway and plan its window
+        # (mid-clip, ~4 s). Needs PEXELS_API_KEY; without a key or a
+        # result the render continues unchanged.
+        broll_path = None
+        temp_broll_path = None
+        broll_start = broll_end = None
+        if broll:
+            try:
+                import time
+                from broll import search_broll, download_broll
+                clip_duration = _probe_duration(source_path)
+                query = broll_query or category or "crowd cheering"
+                results = search_broll(query)
+                if not results:
+                    log_event("INFO", "ClipEditor", "No B-roll found; skipping B-roll")
+                elif not clip_duration or clip_duration < 10:
+                    log_event("INFO", "ClipEditor", "Clip too short for a B-roll cutaway; skipping B-roll")
+                else:
+                    temp_broll_path = str(EDITED_DIR / f"temp_broll_{streamer}_{int(time.time()*1000)}.mp4")
+                    downloaded = download_broll(results[0]["url"], temp_broll_path)
+                    if downloaded:
+                        stock_len = results[0].get("duration") or 4.0
+                        window = min(4.0, float(stock_len))
+                        broll_start = round(clip_duration * 0.35, 2)
+                        broll_end = round(min(broll_start + window, clip_duration - 1.0), 2)
+                        if broll_end - broll_start >= 1.5:
+                            broll_path = downloaded
+                        else:
+                            broll_path = None
+            except Exception as e:
+                log_event("WARNING", "ClipEditor", f"B-roll setup failed, continuing without B-roll: {e}")
+                broll_path = None
 
         # 0. Get official full-width Kick Watermark overlay for this streamer
         watermark_png = generate_kick_watermark(streamer)
@@ -161,13 +373,23 @@ class ClipEditor:
             source_label = "[mirrored]"
 
         # 2. Layout Transformation (Split or Blurred Backdrop)
+        # Tier 5 modes need speaker data the pipeline does not produce
+        # yet (no diarization); without it they fall back to
+        # speaker_tracking with a logged warning instead of failing.
+        if layout == "camera_switch" and not (speaker_segments and trajectories):
+            log_event("WARNING", "ClipEditor", "camera_switch needs speaker_segments + trajectories; falling back to speaker_tracking")
+            layout = "speaker_tracking"
+        if layout == "split_screen" and not split_speakers:
+            log_event("WARNING", "ClipEditor", "split_screen needs split_speakers; falling back to speaker_tracking")
+            layout = "speaker_tracking"
         split_divider_y = 960  # Clean 50/50 split
+        base_label = "[base]"
         if layout == "speaker_tracking" or layout == "smart_crop":
             # Active Speaker Tracking & Dynamic Face Auto-Framing (Follows the talking person)
             from speaker_tracker import SpeakerTracker
             tracker = SpeakerTracker()
             try:
-                smoothed_x, rw, rh, cw = tracker.analyze_video_trajectory(raw_clip_path)
+                smoothed_x, rw, rh, cw = tracker.analyze_video_trajectory(source_path)
                 crop_filter = tracker.get_ffmpeg_crop_filter(smoothed_x, 30.0, cw, rh)
                 filter_complex.append(f"{source_label}{crop_filter}[base]")
             except Exception as e:
@@ -195,13 +417,76 @@ class ClipEditor:
             )
             # Full-width watermark placed right above TikTok username (y: 1530)
             wm_y = 1420
+        elif layout == "camera_switch":
+            # Full-screen cuts to whoever is speaking (Tier 5). Segments
+            # must cover the whole clip on the (silence-trimmed) source
+            # timeline or the video ends up shorter than the audio.
+            try:
+                from render_modes import build_camera_switch_filter
+                cam_filter, cam_out = build_camera_switch_filter(
+                    speaker_segments, trajectories,
+                    width=VIDEO_WIDTH, height=VIDEO_HEIGHT,
+                    source_label=source_label,
+                )
+                filter_complex.append(cam_filter)
+                base_label = cam_out
+            except Exception as e:
+                log_event("WARNING", "ClipEditor", f"Camera-switch failed ({e}); falling back to smart crop")
+                filter_complex.append(
+                    f"{source_label}scale=-1:{VIDEO_HEIGHT}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{VIDEO_HEIGHT}[base]"
+                )
+                base_label = "[base]"
+            wm_y = 1420
+        elif layout == "split_screen":
+            # Two speakers stacked vertically, active speaker highlighted
+            # (Tier 5). The highlight is static per render.
+            try:
+                from render_modes import build_split_screen_filter
+                split_filter, split_out = build_split_screen_filter(
+                    split_speakers, active_speaker=active_speaker,
+                    width=VIDEO_WIDTH, height=VIDEO_HEIGHT,
+                    source_label=source_label,
+                )
+                filter_complex.append(split_filter)
+                base_label = split_out
+            except Exception as e:
+                log_event("WARNING", "ClipEditor", f"Split-screen failed ({e}); falling back to smart crop")
+                filter_complex.append(
+                    f"{source_label}scale=-1:{VIDEO_HEIGHT}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{VIDEO_HEIGHT}[base]"
+                )
+                base_label = "[base]"
+            wm_y = 1420
         else:
             filter_complex.append(
                 f"{source_label}scale=-1:{VIDEO_HEIGHT}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{VIDEO_HEIGHT}[base]"
             )
             wm_y = 1420
 
-        current_label = "[base]"
+        current_label = base_label
+
+        # 2b. B-roll cutaway (Tier 5): full-screen stock overlay mid-clip,
+        # faded in/out. Duration-preserving (overlay, not xfade), so the
+        # audio stays in sync; the B-roll input is looped so it always
+        # covers the window.
+        if broll_path and broll_start is not None:
+            try:
+                from broll import build_kenburns_filter, build_broll_overlay_filter
+                kb_filter = build_kenburns_filter(
+                    duration=broll_end - broll_start,
+                    input_label="[1:v]",
+                    output_label="[broll_kb]",
+                )
+                overlay_filter, broll_out = build_broll_overlay_filter(
+                    base_label=base_label, broll_label="[broll_kb]",
+                    start=broll_start, end=broll_end,
+                    output_label="[broll_out]",
+                )
+                filter_complex.append(kb_filter)
+                filter_complex.append(overlay_filter)
+                current_label = broll_out
+            except Exception as e:
+                log_event("WARNING", "ClipEditor", f"B-roll overlay failed, continuing without B-roll: {e}")
+                current_label = base_label
 
         # 3. HDR Sharpness & Contrast Boost
         if hdr_sharpness:
@@ -233,41 +518,88 @@ class ClipEditor:
         # 6. Dynamic Subtitles (OFF by default as requested by user)
         if auto_captions and ass_subtitle_path and os.path.exists(ass_subtitle_path):
             escaped_ass = self.escape_path(ass_subtitle_path)
-            filter_complex.append(f"{current_label}subtitles='{escaped_ass}':fontsdir='C\\:/Windows/Fonts'[v_final]")
+            fonts_dir = resolve_fonts_dir()
+            if fonts_dir:
+                escaped_fonts = self.escape_path(fonts_dir)
+                filter_complex.append(f"{current_label}subtitles='{escaped_ass}':fontsdir='{escaped_fonts}'[v_final]")
+            else:
+                filter_complex.append(f"{current_label}subtitles='{escaped_ass}'[v_final]")
             final_v_out = "[v_final]"
         else:
             final_v_out = current_label
 
-        full_filter_str = ";".join(filter_complex)
+        # VAAPI encode needs the frames uploaded to the GPU at the end of
+        # the (software) filter chain.
+        if vaapi_input:
+            filter_complex.append(f"{final_v_out}format=nv12,hwupload[v_vaapi]")
+            final_v_out = "[v_vaapi]"
 
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", raw_clip_path,
-            "-filter_complex", full_filter_str,
-            "-map", final_v_out,
-            "-map", "0:a?",
-            "-c:v", "libx264",
-            "-preset", "veryfast",
-            "-crf", "21",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            "-movflags", "+faststart",
-            output_path
-        ]
+        def build_cmd(use_bgm):
+            """Assemble the ffmpeg command; BGM is a separate variant so
+            a BGM failure can retry without music (see below)."""
+            cmd = ["ffmpeg", "-y"]
+            if vaapi_input:
+                from encoder import VAAPI_INPUT_ARGS
+                cmd += VAAPI_INPUT_ARGS
+            cmd += ["-i", source_path]
+            if broll_path:
+                # Input 1: B-roll, looped so it always covers its window.
+                cmd += ["-stream_loop", "-1", "-i", broll_path]
+            filters = list(filter_complex)
+            audio_map = "0:a?"
+            if use_bgm and bgm_path:
+                from bgm import bgm_ffmpeg_input_args, build_ducking_filter
+                cmd += bgm_ffmpeg_input_args(bgm_path)
+                bgm_index = 2 if broll_path else 1
+                duck_filter, _ = build_ducking_filter(bgm_label=f"[{bgm_index}:a]")
+                filters.append(duck_filter)
+                audio_map = "[a_out]"
+            cmd += [
+                "-filter_complex", ";".join(filters),
+                "-map", final_v_out,
+                "-map", audio_map,
+                "-c:v", codec,
+                *codec_args,
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-movflags", "+faststart",
+                output_path,
+            ]
+            return cmd
 
-        try:
-            log_event("INFO", "ClipEditor", f"Rendering compliant clip for {streamer}: {output_path}")
-            res = subprocess.run(
+        def run_ffmpeg(cmd):
+            return subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-                timeout=180
+                timeout=180,
             )
+
+        try:
+            log_event("INFO", "ClipEditor", f"Rendering compliant clip for {streamer}: {output_path}")
+            res = run_ffmpeg(build_cmd(use_bgm=True))
+            if res.returncode != 0 and bgm_path:
+                # BGM is the usual suspect (bad MP3, or a source with no
+                # audio stream for the ducking filter) — retry once
+                # without music before giving up.
+                log_event("WARNING", "ClipEditor", f"BGM render failed ({res.stderr[-200:]}); retrying without BGM")
+                res = run_ffmpeg(build_cmd(use_bgm=False))
             if res.returncode != 0:
                 log_event("ERROR", "ClipEditor", f"FFmpeg render error: {res.stderr[-300:]}")
                 raise RuntimeError(f"FFmpeg failed: {res.stderr[-200:]}")
-                
+
+            # 7. Auto-thumbnail: best frame + hook text next to the render.
+            # Failures here must never fail the render.
+            if generate_thumbnail:
+                try:
+                    from thumbnail import generate_thumbnail as _make_thumbnail
+                    thumb_path = str(Path(output_path).with_name(Path(output_path).stem + "_thumb.jpg"))
+                    _make_thumbnail(output_path, hook_banner or "", thumb_path, words=words)
+                    log_event("INFO", "ClipEditor", f"Thumbnail saved: {thumb_path}")
+                except Exception as e:
+                    log_event("WARNING", "ClipEditor", f"Thumbnail generation failed (render unaffected): {e}")
+
             return output_path
         except Exception as e:
             log_event("ERROR", "ClipEditor", f"Clip rendering error: {e}")
@@ -276,5 +608,15 @@ class ClipEditor:
             if card_png and os.path.exists(card_png):
                 try:
                     os.remove(card_png)
+                except Exception:
+                    pass
+            if temp_silence_path and os.path.exists(temp_silence_path):
+                try:
+                    os.remove(temp_silence_path)
+                except Exception:
+                    pass
+            if temp_broll_path and os.path.exists(temp_broll_path):
+                try:
+                    os.remove(temp_broll_path)
                 except Exception:
                     pass

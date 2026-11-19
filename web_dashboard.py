@@ -2,13 +2,14 @@ import os
 import psutil
 import threading
 from pathlib import Path
+from typing import Optional
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from config import BASE_DIR, EDITED_DIR, STREAMERS_TO_MONITOR
+from config import BASE_DIR, EDITED_DIR, STREAMERS_TO_MONITOR, AUTO_CLIP_ENABLED
 from database import (
     get_all_streamers, get_all_clips, get_recent_logs, 
     get_connection, log_event, update_streamer_status,
@@ -36,6 +37,77 @@ screen_agent = KickScreenController()
 # Start background monitor thread
 monitor_thread = monitor.start_background()
 
+# --- Live-clipping upgrades: routers, auth middleware, services ---
+# Each router mounts in its own try/except so one broken module never
+# takes the whole dashboard down.
+try:
+    import kick_webhooks
+    kick_webhooks.set_monitor(monitor)
+    app.include_router(kick_webhooks.router)
+    log_event("INFO", "WebAPI", "Kick webhooks router mounted at /api/webhooks/kick")
+except Exception as e:
+    log_event("WARNING", "WebAPI", f"Kick webhooks router not mounted: {e}")
+
+try:
+    import dashboard_routers
+    app.include_router(dashboard_routers.router)
+    log_event("INFO", "WebAPI", "Earnings/analytics/queue routers mounted")
+except Exception as e:
+    log_event("WARNING", "WebAPI", f"Earnings/analytics/queue routers not mounted: {e}")
+
+try:
+    import auth
+    app.include_router(auth.router)
+    log_event("INFO", "WebAPI", "Dashboard login router mounted at /login")
+except Exception as e:
+    log_event("WARNING", "WebAPI", f"Dashboard login router not mounted: {e}")
+    auth = None
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Dashboard login gate (Tier 4).
+
+    When no password is configured, auth.is_auth_enabled() is False and
+    every request passes through. When a password IS configured, every
+    route except the login/logout pages, the Kick webhook endpoint
+    (Kick cannot log in) and static assets requires a valid session
+    cookie: API callers get 401 JSON, browsers get redirected to /login.
+    """
+    if auth is not None and auth.is_auth_enabled():
+        path = request.url.path
+        public = path in ("/login", "/logout") or path.startswith("/static") or path == "/api/webhooks/kick"
+        if not public:
+            token = request.cookies.get(auth.SESSION_COOKIE_NAME)
+            if not auth.verify_session_token(token):
+                if path.startswith("/api/"):
+                    return JSONResponse({"detail": "Login required"}, status_code=401)
+                return RedirectResponse(url="/login", status_code=303)
+    return await call_next(request)
+
+
+# Upload scheduler (Tier 2): drains the upload queue in the background.
+upload_scheduler = None
+try:
+    from upload_scheduler import UploadScheduler
+    upload_scheduler = UploadScheduler()
+    upload_scheduler.start()
+    log_event("INFO", "WebAPI", "Upload scheduler started")
+except Exception as e:
+    log_event("WARNING", "WebAPI", f"Upload scheduler not started: {e}")
+
+# Auto-clip watcher (Tier 1): only when explicitly enabled — it clips
+# automatically whenever a monitored stream gets hypey.
+auto_clip_watcher = None
+if AUTO_CLIP_ENABLED:
+    try:
+        from auto_clip_watcher import AutoClipWatcher
+        auto_clip_watcher = AutoClipWatcher(monitor, pipeline)
+        auto_clip_watcher.start()
+        log_event("INFO", "WebAPI", "Auto-clip watcher started (AUTO_CLIP_ENABLED)")
+    except Exception as e:
+        log_event("WARNING", "WebAPI", f"Auto-clip watcher not started: {e}")
+
 # Request Models
 class StreamerReq(BaseModel):
     username: str
@@ -62,7 +134,7 @@ async def generate_discord_command(req: DiscordCmdReq):
     }
 class ClipTriggerReq(BaseModel):
     streamer: str
-    duration: int = 25
+    duration: Optional[int] = None  # None = the streamer's profile decides
     mirror: bool = True
     hdr_sharpness: bool = True
     layout: str = "speaker_tracking"
@@ -86,7 +158,10 @@ class UploadReq(BaseModel):
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    # New Starlette signature: TemplateResponse(request, name, context).
+    # The legacy TemplateResponse(name, {"request": ...}) form was removed
+    # in Starlette 1.x and raises TypeError there.
+    return templates.TemplateResponse(request, "index.html")
 
 @app.get("/api/stats")
 async def get_stats():
@@ -155,7 +230,8 @@ async def trigger_clip(req: ClipTriggerReq, background_tasks: BackgroundTasks):
         )
 
     background_tasks.add_task(run_pipeline)
-    return {"status": "started", "message": f"Processing {req.duration}s clip for {req.streamer} (Position='{req.caption_position}')."}
+    duration_label = f"{req.duration}s" if req.duration else "profile-length"
+    return {"status": "started", "message": f"Processing {duration_label} clip for {req.streamer} (Position='{req.caption_position}')."}
 
 @app.post("/api/clips/{clip_id}/rerender")
 async def rerender_clip_endpoint(clip_id: int, req: RerenderReq, background_tasks: BackgroundTasks):
@@ -170,6 +246,50 @@ async def rerender_clip_endpoint(clip_id: int, req: RerenderReq, background_task
         )
     background_tasks.add_task(run_rerender)
     return {"status": "started", "message": f"Re-rendering clip #{clip_id} with caption '{req.caption_position}'"}
+
+@app.post("/api/clips/{clip_id}/retry")
+async def retry_clip_endpoint(clip_id: int, background_tasks: BackgroundTasks):
+    """Resume a failed clip from its last completed checkpoint (Tier 4)."""
+    def run_resume():
+        pipeline.resume_clip(clip_id)
+    background_tasks.add_task(run_resume)
+    return {"status": "started", "message": f"Resuming clip #{clip_id} from its last checkpoint"}
+
+
+class WebhookSubscribeReq(BaseModel):
+    broadcaster_user_id: Optional[int] = None
+
+
+@app.get("/api/webhooks/status")
+async def webhooks_status():
+    """Kick webhook configuration status + setup checklist (Tier 1)."""
+    try:
+        import kick_webhooks
+        return {
+            "configured": kick_webhooks.webhooks_configured(),
+            "checklist": kick_webhooks.get_setup_checklist(),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Webhook module unavailable: {e}")
+
+
+@app.post("/api/webhooks/subscribe")
+async def webhooks_subscribe(req: WebhookSubscribeReq):
+    """Subscribe to livestream.status.updated events (Tier 1).
+
+    With no broadcaster_user_id, subscribes to the token owner's own
+    channel. Subscribing to other broadcasters needs a token authorised
+    for them — unverified whether a user token can do that, so the
+    endpoint reports Kick's own answer.
+    """
+    try:
+        import kick_webhooks
+        token = kick_webhooks.get_access_token()
+        result = kick_webhooks.subscribe_livestream_status(token, req.broadcaster_user_id)
+        return {"status": "subscribed", "subscription": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/agent/open_browser")
 async def open_browser_viewer(req: StreamerReq, background_tasks: BackgroundTasks):

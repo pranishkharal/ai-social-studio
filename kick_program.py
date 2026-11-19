@@ -98,6 +98,48 @@ def format_bot_submission_command(streamer: str, video_urls: list) -> str:
     urls_str = ",".join(clean_urls[:10])
     return f"{info['cmd']} {urls_str}"
 
+def _candidate_display_fonts():
+    """Bold display-font paths, in preference order.
+
+    Built from the platform font directories (platform_utils): Windows
+    Fonts, macOS Fonts (+ Supplemental, where Impact and Arial Bold
+    live), then the Linux truetype dirs. The Docker image installs
+    fonts-dejavu-core and fonts-liberation, so DejaVuSans-Bold and
+    LiberationSans-Bold are available there.
+    """
+    from platform_utils import font_directories
+    names = [
+        "impact.ttf", "Impact.ttf",
+        "arialbd.ttf", "Arial_Bold.ttf", "Arial Bold.ttf",
+        "DejaVuSans-Bold.ttf", "LiberationSans-Bold.ttf",
+        "NotoSans-Bold.ttf", "FreeSansBold.ttf",
+    ]
+    return [str(d / name) for d in font_directories() for name in names]
+
+
+def resolve_display_font_path():
+    """Return the first bold display font file that exists, or None."""
+    for path in _candidate_display_fonts():
+        if path and os.path.exists(path):
+            return path
+    return None
+
+
+def load_display_font(size: int):
+    """Load a bold display font at `size`; never raises.
+
+    Falls back to Pillow's built-in default font when no display font is
+    installed, so overlay generation works on any platform.
+    """
+    font_path = resolve_display_font_path()
+    if font_path:
+        try:
+            return ImageFont.truetype(font_path, size)
+        except Exception:
+            pass
+    return ImageFont.load_default()
+
+
 def get_or_create_streamer_overlay(streamer_name: str) -> str:
     """
     Returns the full-width side-to-side Kick watermark overlay (prxno / GitHub standard):
@@ -139,11 +181,8 @@ def get_or_create_streamer_overlay(streamer_name: str) -> str:
         logo = Image.open(logo_path).convert("RGBA")
         canvas.paste(logo, (0, 0), logo)
 
-    # Draw centered streamer text
-    font_path = "C:/Windows/Fonts/impact.ttf"
-    if not os.path.exists(font_path):
-        font_path = "C:/Windows/Fonts/arialbd.ttf"
-    font = ImageFont.truetype(font_path, 42)
+    # Draw centered streamer text (cross-platform font resolution; never crashes)
+    font = load_display_font(42)
     
     text = f"KICK.COM/{clean_name.upper()}"
     bbox = draw.textbbox((0, 0), text, font=font)
