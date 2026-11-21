@@ -147,16 +147,33 @@
             <div class="col-span-12 lg:col-span-4 space-y-4">
                 
                 <!-- Streamer Switcher & Rate Info -->
+                <!-- Streamer Switcher & Rate Info -->
                 <div class="glass-panel rounded-2xl p-5 space-y-3">
                     <div class="flex items-center justify-between">
                         <label class="text-xs font-bold uppercase tracking-wider text-gray-400">Target Live Creator</label>
-                        <span id="live-pill-badge" class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 font-mono">🟢 LIVE</span>
+                        <div class="flex items-center space-x-2">
+                            <span id="live-pill-badge" class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 font-mono">🟢 LIVE</span>
+                            <button onclick="deleteCurrentStreamer()" title="Remove this streamer from your list" class="text-xs text-red-400 hover:text-red-300 bg-red-950/40 hover:bg-red-950/80 px-2 py-0.5 rounded-lg border border-red-900 transition flex items-center space-x-1">
+                                <span>🗑️ Delete</span>
+                            </button>
+                        </div>
                     </div>
 
                     <select id="active-target-streamer" onchange="onStreamerChanged()" class="w-full bg-black/60 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white font-bold focus:outline-none focus:border-[#53fc18]">
+                        <option value="westcol">westcol 🟢 (Live)</option>
+                        <option value="adinross">adinross ⚪ (Offline)</option>
+                        <option value="xqc">xqc ⚪ (Offline)</option>
+                        <option value="tarik">tarik ⚪ (Offline)</option>
                     </select>
 
-
+                    <!-- Add Streamer Form Directly In Target Card -->
+                    <form id="add-streamer-form" class="flex gap-2 pt-1">
+                        <input type="text" id="streamer-input" placeholder="Add Kick channel (e.g. adinross)" 
+                               class="flex-1 bg-black/50 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
+                        <button type="submit" class="bg-[#53fc18] hover:bg-[#46d614] text-black font-extrabold px-3.5 py-2 rounded-xl text-xs transition">
+                            + Add
+                        </button>
+                    </form>
 
                     <!-- Fast Instant Clip Buttons (15s, 25s, 35s) -->
                     <div class="pt-2">
@@ -273,15 +290,6 @@
                                    class="w-full bg-black/50 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
                         </div>
                     </div>
-
-                    <!-- Add Streamer Form -->
-                    <form id="add-streamer-form" class="flex gap-2 pt-1">
-                        <input type="text" id="streamer-input" placeholder="Add Kick streamer (e.g. tarik)" 
-                               class="flex-1 bg-black/50 border border-gray-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
-                        <button type="submit" class="bg-[#53fc18] hover:bg-[#46d614] text-black font-bold px-3 py-1.5 rounded-xl text-xs transition">
-                            + Add
-                        </button>
-                    </form>
                 </div>
 
                 <!-- Clip a Past Video / VOD (v1.2.0) -->
@@ -476,10 +484,13 @@
                     <span id="modal-badge-approval" class="text-xs px-2 py-0.5 rounded font-mono bg-yellow-950 text-yellow-400 border border-yellow-800">Pending Review</span>
                 </div>
 
-                <!-- Human Customer Approval Controls (PRD Section 12) -->
-                <div class="bg-gray-900 border border-gray-800 p-2.5 rounded-xl flex items-center justify-between text-xs">
-                    <span class="text-gray-300 font-semibold">Customer Approval:</span>
-                    <div class="flex space-x-2">
+                <!-- Human Customer Approval & Download Controls -->
+                <div class="bg-gray-900 border border-gray-800 p-2.5 rounded-xl flex items-center justify-between text-xs flex-wrap gap-2">
+                    <span class="text-gray-300 font-semibold">Actions:</span>
+                    <div class="flex space-x-2 items-center flex-wrap gap-1.5">
+                        <a id="modal-download-btn" href="#" download class="bg-[#53fc18] hover:bg-[#46d614] text-black font-extrabold px-3 py-1 rounded-lg transition flex items-center space-x-1 shadow cursor-pointer">
+                            <span>⬇️ Download MP4</span>
+                        </a>
                         <button onclick="submitApproval('approved')" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1 rounded-lg transition flex items-center space-x-1">
                             <span>✅ Approve</span>
                         </button>
@@ -918,18 +929,23 @@
         async function fetchStats() {
             try {
                 const res = await fetch('/api/stats');
+                if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
-                document.getElementById('cpu-stat').innerText = data.cpu_percent + '%';
+                const el = document.getElementById('cpu-stat');
+                if (el) el.innerText = (data.cpu_percent !== undefined ? data.cpu_percent : 0) + '%';
             } catch (e) {
-                console.error(e);
+                console.error("fetchStats error:", e);
+                setTimeout(fetchStats, 1000);
             }
         }
 
         async function fetchStreamers() {
             try {
                 const res = await fetch('/api/streamers');
+                if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
                 const select = document.getElementById('active-target-streamer');
+                if (!select || !Array.isArray(data)) return;
                 
                 const prevVal = select.value;
                 select.innerHTML = '';
@@ -941,7 +957,7 @@
 
                     const opt = document.createElement('option');
                     opt.value = s.username;
-                    opt.innerText = `${s.username} ${s.is_live ? '🟢 (' + s.viewer_count.toLocaleString() + ' viewers)' : '⚪ (Offline)'}`;
+                    opt.innerText = `${s.username} ${s.is_live ? '🟢 (' + Number(s.viewer_count || 0).toLocaleString() + ' viewers)' : '⚪ (Offline)'}`;
                     select.appendChild(opt);
                 });
 
@@ -951,10 +967,45 @@
                     select.value = select.options[0].value;
                 }
 
-                document.getElementById('active-count').innerText = `${liveCount} Live`;
+                const liveBadge = document.getElementById('live-pill-badge');
+                const selectedStreamerObj = data.find(s => s.username === select.value);
+                if (liveBadge && selectedStreamerObj) {
+                    liveBadge.className = selectedStreamerObj.is_live 
+                        ? 'text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 font-mono'
+                        : 'text-[10px] px-2 py-0.5 rounded-full bg-gray-900 text-gray-400 border border-gray-800 font-mono';
+                    liveBadge.innerText = selectedStreamerObj.is_live ? '🟢 LIVE' : '⚪ OFFLINE';
+                }
+
+                const countEl = document.getElementById('active-count');
+                if (countEl) countEl.innerText = `${liveCount} Live`;
                 updateRateDisplay();
             } catch (e) {
+                console.error("fetchStreamers error:", e);
+                setTimeout(fetchStreamers, 1000);
+            }
+        }
+
+        async function deleteCurrentStreamer() {
+            const select = document.getElementById('active-target-streamer');
+            const streamer = select ? select.value : null;
+            if (!streamer) {
+                showToast("No streamer selected");
+                return;
+            }
+            if (!confirm(`Are you sure you want to remove '${streamer}' from your monitored streamers list?`)) return;
+
+            try {
+                const res = await fetch(`/api/streamers/${encodeURIComponent(streamer)}`, {method: 'DELETE'});
+                if (res.ok) {
+                    showToast(`🗑️ Removed ${streamer} from watchlist`);
+                    await fetchStreamers();
+                    onStreamerChanged();
+                } else {
+                    showToast(`Failed to remove ${streamer}`);
+                }
+            } catch (e) {
                 console.error(e);
+                showToast(`Error removing streamer: ${e.message}`);
             }
         }
 
@@ -1100,8 +1151,8 @@
                     </div>
 
                     <!-- Approval & Action Station -->
-                    <div class="pt-2 border-t border-gray-800/80 flex items-center justify-between text-xs">
-                        <div class="flex space-x-1.5 items-center">
+                    <div class="pt-2 border-t border-gray-800/80 flex items-center justify-between text-xs flex-wrap gap-2">
+                        <div class="flex space-x-1.5 items-center flex-wrap gap-1">
                             ${c.approval_status === 'rejected' ? `
                                 <button onclick="restoreDirect(${c.id}, event)" title="Restore clip to Active Queue" class="px-2.5 py-1 rounded bg-blue-950 text-blue-300 hover:bg-blue-900 border border-blue-800 text-[11px] font-semibold transition flex items-center space-x-1">
                                     <span>↩️ Restore</span>
@@ -1114,7 +1165,12 @@
                                     <span>❌ Reject</span>
                                 </button>
                             `}
-                            <button onclick="deleteClipDirect(${c.id}, event)" title="Permanently delete clip & MP4 from D: drive" class="p-1.5 rounded bg-gray-900 hover:bg-red-950 hover:text-red-400 text-gray-500 border border-gray-800 transition">
+                            ${isReady ? `
+                                <a href="/video/${c.id}?download=true" download="${c.streamer}_clip_${c.id}.mp4" onclick="event.stopPropagation()" title="Download vertical MP4 to your computer" class="px-2 py-1 rounded bg-[#53fc18]/15 hover:bg-[#53fc18] text-[#53fc18] hover:text-black border border-[#53fc18]/40 text-[11px] font-bold transition flex items-center space-x-1">
+                                    <span>⬇️ Download</span>
+                                </a>
+                            ` : ''}
+                            <button onclick="deleteClipDirect(${c.id}, event)" title="Permanently delete clip & MP4 from D: drive" class="p-1 rounded bg-gray-900 hover:bg-red-950 hover:text-red-400 text-gray-500 border border-gray-800 transition">
                                 🗑️
                             </button>
                         </div>
@@ -1384,7 +1440,10 @@
                 player.load();
                 
                 const dlBtn = document.getElementById('modal-download-btn');
-                if (dlBtn) dlBtn.href = `/video/${clip.id}`;
+                if (dlBtn) {
+                    dlBtn.href = `/video/${clip.id}?download=true`;
+                    dlBtn.download = `${clip.streamer || 'kick'}_clip_${clip.id}.mp4`;
+                }
 
                 const titleInput = document.getElementById('modal-title-input');
                 if (titleInput) titleInput.value = clip.hook_banner || clip.title || '';
@@ -1533,16 +1592,31 @@
         document.getElementById('add-streamer-form').onsubmit = async (e) => {
             e.preventDefault();
             const input = document.getElementById('streamer-input');
-            const username = input.value.trim();
+            const username = input.value.trim().toLowerCase();
             if (!username) return;
-            await fetch('/api/streamers', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({username})
-            });
-            input.value = '';
-            fetchStreamers();
-            showToast(`Added ${username} to watchlist!`);
+            try {
+                showToast(`Adding ${username} to watchlist...`);
+                const res = await fetch('/api/streamers', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username})
+                });
+                if (res.ok) {
+                    input.value = '';
+                    await fetchStreamers();
+                    const select = document.getElementById('active-target-streamer');
+                    if (select) {
+                        select.value = username;
+                        onStreamerChanged();
+                    }
+                    showToast(`✅ Added ${username} to watchlist!`);
+                } else {
+                    showToast(`Could not add streamer ${username}`);
+                }
+            } catch (err) {
+                console.error(err);
+                showToast(`Error adding streamer: ${err.message}`);
+            }
         };
 
         function refreshClips() {

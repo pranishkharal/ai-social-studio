@@ -364,15 +364,18 @@ async def scrub_stream(req: ScrubReq):
     return {"status": "success" if success else "failed"}
 
 @app.api_route("/video/{clip_id}", methods=["GET", "HEAD"])
-async def stream_video(clip_id: int):
+async def stream_video(clip_id: int, download: bool = False):
     conn = get_connection()
-    row = conn.execute("SELECT edited_path, raw_path FROM clips WHERE id = ?", (clip_id,)).fetchone()
+    row = conn.execute("SELECT streamer, edited_path, raw_path FROM clips WHERE id = ?", (clip_id,)).fetchone()
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail="Video not found")
     path = row["edited_path"] or row["raw_path"]
     if not path or not os.path.exists(path):
         raise HTTPException(status_code=404, detail="File missing on disk")
+    filename = os.path.basename(path)
+    if download:
+        return FileResponse(path, media_type="video/mp4", filename=filename)
     return FileResponse(path, media_type="video/mp4")
 
 @app.post("/api/clips/{clip_id}/upload")
