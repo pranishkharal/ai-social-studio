@@ -544,18 +544,19 @@ async def convert_kick_clip(req: ConvertKickClipReq, background_tasks: Backgroun
             
             log_event("INFO", "KickCommunity", f"Downloading Kick community clip: {req.title or req.clip_url}")
             # Stream-copy directly from Kick m3u8 playlist to local mp4
-            cmd = ["ffmpeg", "-y", "-i", req.clip_url, "-c", "copy", raw_path]
-            p = subprocess.run(cmd, capture_output=True, timeout=90)
+            target_dur = min(int(req.duration or 30), 60)
+            cmd = ["ffmpeg", "-y", "-i", req.clip_url, "-t", str(target_dur), "-c", "copy", raw_path]
+            p = subprocess.run(cmd, capture_output=True, timeout=120)
             if p.returncode != 0 or not os.path.exists(raw_path) or os.path.getsize(raw_path) < 1000:
                 log_event("ERROR", "KickCommunity", f"Failed to download Kick clip: {p.stderr.decode('utf-8', 'replace')}")
                 return
             
             # Process moment through pipeline (Whisper STT + Caption Guide + 9:16 Crop)
-            log_event("INFO", "KickCommunity", f"Processing Kick clip #{req.clip_id} through AI Social Studio...")
+            log_event("INFO", "KickCommunity", f"Processing Kick clip #{req.clip_id} ({target_dur}s) through AI Social Studio...")
             pipeline.process_moment(
                 streamer=safe_streamer,
                 raw_clip_path=raw_path,
-                duration=req.duration or 30
+                duration=target_dur
             )
             add_notification(
                 title=f"🎬 Kick Clip Converted: {req.title or 'Viewer Clip'}",

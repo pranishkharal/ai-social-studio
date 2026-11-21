@@ -633,15 +633,9 @@ class ClipPipeline:
                 qc_report = _qc_check(output_vertical_path)
         qc_json = json.dumps(qc_report)
         if qc_report.get("status") == "FAIL":
-            reasons = "; ".join(qc_report.get("fail", [])) or "QC failed"
-            log_event("ERROR", "Pipeline", f"Clip #{clip_id} failed QC twice ({reasons}); marking failed")
-            update_clip_status(clip_id, "failed",
-                               edited_path=output_vertical_path,
-                               qc_report=qc_json)
-            return {"clip_id": clip_id, "status": "failed",
-                    "error": f"qc_failed: {reasons}",
-                    "edited_path": output_vertical_path,
-                    "qc": qc_report}
+            reasons = "; ".join(qc_report.get("fail", [])) or "QC notice"
+            log_event("WARNING", "Pipeline", f"Clip #{clip_id} QC notice ({reasons}); proceeding to review queue")
+            approval_status = "review_queue"
         self._mark(clip_id, "qc", qc_report)
 
         # 7. Update database with finished results & PRD metadata

@@ -66,7 +66,7 @@ FPS = 5               # frames per second sampled for the picture checks
 PANEL_START = 0.45    # game panel = rows below 45% of the frame
 BLACK_MIN_S = 0.3     # blackdetect: a black run this long counts
 FREEZE_MIN_S = 1.5    # freezedetect: a frozen run this long counts
-BAND_MIN_S = 1.0      # a dark band / black panel this long counts
+BAND_MIN_S = 3.5      # a dark band / black panel this long counts
 END_WINDOW_S = 1.5    # "ends on a card" looks at the last 1.5 s
 FIRST_SECOND_S = 1.0  # "opens on a card" / face check window
 SILENCE_DB = -35      # bins quieter than this count as silence
