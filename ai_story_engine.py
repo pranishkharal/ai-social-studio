@@ -325,8 +325,17 @@ Strict AI Social Studio PRD Requirements:
    - 60-79: Good moment, worth reviewing
    - 0-59: Mediocre or filler
 3. SELECTION REASON: 1 concise sentence explaining why this moment was selected.
-4. TIKTOK CAPTION FORMULA:
-   - Must strictly follow: "{streamer.title()} [ACTION_VERB_IN_CAPS] [context with selective CAPS words]…[2 EMOJIS]#{streamer.lower()} #[secondary_topic] #fyp"
+4. VIRAL CAPTION GUIDE STRATEGY (Watch Time & Comment Baiting):
+   - Match the clip to the best viral strategy from the Caption Guide:
+     * Celebrity Encounter: "the moment {streamer} had NO IDEA who he just met ❤️🩹" (Leave celebrity's name anonymous to drive comment debates)
+     * Song Reaction: "{streamer} was SHOCKED after this rapper dropped a GRAMMY WINNING SONG 😭❤️🩹" (Keep rapper anonymous for mystery)
+     * Emotional / Heartbreak: "the emotional moment {streamer} realized what happened ❤️🩹" or "{streamer} was HEARTBROKEN after [context] ❤️🩹"
+     * Apology / Maturity: "the wholesome moment {streamer} showed MATURITY and apologized after what happened ❤️🩹"
+     * Career Milestone: "{streamer} had his \"I MADE IT MOMENT\" and was emotional after what happened ❤️🩹"
+     * Viral / High Stakes: Provide specific details, exact dollar amounts, cars/items, or consequences (e.g. "{streamer} was EMOTIONAL after realizing he had to pay $25,000 to fix Ron's spoiler on his $400,000 Porsche GT3 RS")
+   - Boost with trigger words in ALL CAPS where appropriate: PROVED, SPEECHLESS, REGRETTED, REVEALED
+   - Target watch-time: leave out just enough info so viewers must finish the clip or check comments.
+   - End with emojis (❤️🩹, 😭, 😳, 💀) and hashtags: "#{streamer.lower()} #fyp #kick"
 5. ON-SCREEN STORY CAPTION CARD (Prestige White Sticker Card):
    - Format: "{streamer.title()} was [SHOCKED/SPEECHLESS/HEARTBROKEN/EXPOSED] after [specific context from transcript with CAPITALIZED trigger words] [1-2 EMOJIS]"
    - Example: "N3on was SHOCKED after Ryan Garcia just ANNOUNCED that he's F1GHTING Boxing Champ Floyd Mayweather 😳🥊"
