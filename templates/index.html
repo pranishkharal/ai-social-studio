@@ -309,6 +309,52 @@
 
         </div>
 
+        <!-- KICK COMMUNITY CLIPS FEED (LIVE VIEWER PUBLISHED HIGHLIGHTS) -->
+        <div class="space-y-4">
+            <div class="glass-panel rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
+                <div>
+                    <h2 class="text-lg font-extrabold flex items-center space-x-2">
+                        <span>Kick Community Clips</span>
+                        <span class="text-xs px-2.5 py-0.5 rounded-full bg-emerald-950 text-[#53fc18] border border-emerald-800 flex items-center space-x-1.5 font-bold">
+                            <span class="w-1.5 h-1.5 rounded-full bg-[#53fc18] animate-ping"></span>
+                            <span>Live Viewer Clips</span>
+                        </span>
+                    </h2>
+                    <p class="text-xs text-gray-400 mt-0.5">
+                        Clips published on Kick by viewers right now. Browse top moments & click <span class="text-[#53fc18] font-bold">⚡ AI Edit to 9:16</span> to convert into vertical TikTok format with viral captions.
+                    </p>
+                </div>
+
+                <!-- Controls: Sort, Time, Streamer, Refresh -->
+                <div class="flex items-center space-x-2 flex-wrap gap-2">
+                    <div class="flex bg-black/60 p-1 rounded-xl border border-gray-800 text-xs">
+                        <button onclick="setCommunitySort('date')" id="btn-comm-sort-date" class="px-3 py-1.5 rounded-lg font-bold bg-[#53fc18] text-black transition">⚡ Just Published</button>
+                        <button onclick="setCommunitySort('view')" id="btn-comm-sort-view" class="px-3 py-1.5 rounded-lg font-medium text-gray-300 hover:text-white transition">🔥 Most Viewed</button>
+                    </div>
+
+                    <select id="comm-time-select" onchange="fetchCommunityClips()" class="bg-black/60 border border-gray-800 rounded-xl px-3 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-[#53fc18]">
+                        <option value="day">Today (24h)</option>
+                        <option value="week">This Week</option>
+                        <option value="month">This Month</option>
+                        <option value="all">All Time</option>
+                    </select>
+
+                    <button onclick="fetchCommunityClips()" class="px-3 py-1.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-xs font-semibold text-gray-200 border border-gray-700 transition flex items-center space-x-1.5">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                        <span>Refresh Clips</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Kick Clips Cards Grid -->
+            <div id="community-clips-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+                <div class="col-span-full text-center py-10 glass-panel rounded-2xl">
+                    <div class="animate-spin text-2xl mb-2">⏳</div>
+                    <div class="text-xs text-gray-400 font-mono">Loading Kick community clips...</div>
+                </div>
+            </div>
+        </div>
+
         <!-- BOTTOM SECTION: AI GENERATED VERTICAL CLIPS GALLERY & APPROVAL SYSTEM -->
         <div class="space-y-4">
             
@@ -562,6 +608,154 @@
         let ratesData = {};
         let allClipsData = [];
         let currentFilter = 'active';
+        let byDayView = false;
+        let weekSchedule = [];
+        let communitySort = 'date';
+        let communityClipsData = [];
+
+        function setCommunitySort(sort) {
+            communitySort = sort;
+            const btnDate = document.getElementById('btn-comm-sort-date');
+            const btnView = document.getElementById('btn-comm-sort-view');
+            if (btnDate && btnView) {
+                if (sort === 'date') {
+                    btnDate.className = "px-3 py-1.5 rounded-lg font-bold bg-[#53fc18] text-black transition";
+                    btnView.className = "px-3 py-1.5 rounded-lg font-medium text-gray-300 hover:text-white transition";
+                } else {
+                    btnView.className = "px-3 py-1.5 rounded-lg font-bold bg-[#53fc18] text-black transition";
+                    btnDate.className = "px-3 py-1.5 rounded-lg font-medium text-gray-300 hover:text-white transition";
+                }
+            }
+            fetchCommunityClips();
+        }
+
+        async function fetchCommunityClips() {
+            const streamerSelect = document.getElementById('active-target-streamer');
+            const streamer = streamerSelect && streamerSelect.value ? streamerSelect.value : 'westcol';
+            const timeSelect = document.getElementById('comm-time-select');
+            const timeRange = timeSelect ? timeSelect.value : 'day';
+            const grid = document.getElementById('community-clips-grid');
+            if (!grid) return;
+
+            try {
+                const res = await fetch(`/api/kick/community-clips?streamer=${encodeURIComponent(streamer)}&sort=${communitySort}&time_range=${timeRange}`);
+                const data = await res.json();
+                communityClipsData = data.clips || [];
+                renderCommunityClips(streamer);
+                if (data.new_count && data.new_count > 0) {
+                    showToast(`🔔 ${data.new_count} new Kick clip${data.new_count > 1 ? 's' : ''} published by viewers!`);
+                    fetchNotifications();
+                }
+            } catch (err) {
+                console.error("Error fetching community clips:", err);
+                grid.innerHTML = `<div class="col-span-full text-center py-6 text-gray-500 text-xs">Could not load Kick clips for ${streamer}</div>`;
+            }
+        }
+
+        function renderCommunityClips(streamer) {
+            const grid = document.getElementById('community-clips-grid');
+            if (!grid) return;
+            if (!communityClipsData || communityClipsData.length === 0) {
+                grid.innerHTML = `
+                    <div class="col-span-full text-center py-12 glass-panel rounded-2xl">
+                        <div class="text-3xl mb-2">⚡</div>
+                        <div class="text-sm font-semibold text-gray-300">No Kick Clips Found for ${streamer}</div>
+                        <div class="text-xs text-gray-500 mt-1">Try switching to 'All Time' or check back when viewers publish more clips!</div>
+                    </div>
+                `;
+                return;
+            }
+
+            grid.innerHTML = communityClipsData.map(c => {
+                const durMin = Math.floor((c.duration || 30) / 60);
+                const durSec = String((c.duration || 30) % 60).padStart(2, '0');
+                const durStr = `${durMin}:${durSec}`;
+                const safeUrl = encodeURIComponent(c.clip_url || '');
+                const safeTitle = encodeURIComponent(c.title || '');
+                const safeId = encodeURIComponent(c.id || '');
+                const dateStr = c.created_at ? new Date(c.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+
+                return `
+                    <div class="glass-panel rounded-2xl p-3 flex flex-col justify-between border border-gray-800 hover:border-gray-700 transition space-y-2.5">
+                        <div class="relative aspect-video rounded-xl overflow-hidden bg-black group shadow">
+                            <img src="${c.thumbnail_url || ''}" alt="${c.title}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" onerror="this.src='https://placehold.co/600x338/111827/53fc18?text=Kick+Clip'">
+                            
+                            <div class="absolute top-2 left-2 bg-black/80 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border border-gray-800">
+                                ⏱️ ${durStr}
+                            </div>
+                            <div class="absolute top-2 right-2 bg-black/80 text-[#53fc18] text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border border-gray-800">
+                                👀 ${Number(c.views).toLocaleString()} views
+                            </div>
+                            ${c.is_new ? `
+                                <div class="absolute bottom-2 left-2 bg-red-600 text-white text-[10px] font-extrabold px-2 py-0.5 rounded animate-pulse shadow">
+                                    🔥 JUST CLIPPED
+                                </div>
+                            ` : ''}
+
+                            <a href="https://kick.com/${streamer}?clip=${c.id}" target="_blank" class="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition text-white text-3xl">
+                                ▶️
+                            </a>
+                        </div>
+
+                        <div class="space-y-1">
+                            <h4 class="text-xs font-bold text-white line-clamp-2 hover:text-[#53fc18] cursor-pointer" onclick="window.open('https://kick.com/${streamer}?clip=${c.id}', '_blank')">
+                                ${c.title || 'Live Stream Highlight'}
+                            </h4>
+                            <div class="flex items-center justify-between text-[11px] text-gray-400">
+                                <span class="truncate max-w-[120px]">👤 ${c.creator}</span>
+                                <span class="font-mono text-[10px] text-gray-500">${dateStr}</span>
+                            </div>
+                        </div>
+
+                        <div>
+                            ${c.already_edited ? `
+                                <button disabled class="w-full py-2 rounded-xl bg-gray-800/80 text-emerald-400 text-xs font-semibold border border-emerald-900 flex items-center justify-center space-x-1 cursor-default">
+                                    <span>✅ In Studio Clips</span>
+                                </button>
+                            ` : `
+                                <button onclick="convertKickClip('${safeId}', '${safeUrl}', '${safeTitle}', ${c.duration || 30})" class="w-full py-2 rounded-xl bg-[#53fc18] hover:bg-[#46d614] text-black text-xs font-extrabold transition flex items-center justify-center space-x-1.5 shadow">
+                                    <span>⚡ AI Edit to 9:16</span>
+                                </button>
+                            `}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function convertKickClip(clipId, encodedUrl, encodedTitle, duration) {
+            const streamerSelect = document.getElementById('active-target-streamer');
+            const streamer = streamerSelect && streamerSelect.value ? streamerSelect.value : 'westcol';
+            const clipUrl = decodeURIComponent(encodedUrl);
+            const title = decodeURIComponent(encodedTitle);
+
+            showToast(`⚡ Downloading Kick clip & converting with AI Caption Guide...`);
+
+            try {
+                const res = await fetch('/api/kick/convert-clip', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        streamer: streamer,
+                        clip_url: clipUrl,
+                        title: title,
+                        duration: duration || 30,
+                        clip_id: decodeURIComponent(clipId)
+                    })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(`🚀 Clip converting to 9:16 vertical! Check Activity Logs below.`);
+                    setTimeout(fetchCommunityClips, 2000);
+                    setTimeout(fetchClips, 6000);
+                } else {
+                    alert(`Error: ${data.detail || 'Could not convert clip'}`);
+                }
+            } catch (err) {
+                console.error(err);
+                showToast(`❌ Error converting clip: ${err.message}`);
+            }
+        }
 
         // PWA Installation
         let deferredPrompt = null;
@@ -665,6 +859,7 @@
             updateLivePlayer(streamer);
             updateRateDisplay();
             fetchClipRule(streamer);
+            fetchCommunityClips();
         }
 
         function updateLivePlayer(streamer) {
@@ -1602,7 +1797,6 @@
 
         // Shorts-by-day view: the same filtered clips, grouped under a
         // heading per day (newest day first).
-        let byDayView = false;
         function toggleByDayView() {
             byDayView = !byDayView;
             const btn = document.getElementById('btn-by-day');
@@ -1658,7 +1852,6 @@
 
         // Week schedule: drag clip cards onto a day, preview what would
         // be sent (dry run), then queue it for real.
-        let weekSchedule = [];  // [{clip_id, day, time, platform}]
         function buildWeekGrid() {
             const grid = document.getElementById('week-schedule-grid');
             if (!grid) return;
@@ -1782,6 +1975,7 @@
         fetchRates();
         fetchStats();
         fetchStreamers();
+        fetchCommunityClips();
         fetchClips();
         fetchNotifications();
         fetchLogs();
@@ -1791,6 +1985,7 @@
         setInterval(fetchStats, 3000);
         setInterval(fetchStreamers, 10000);
         setInterval(fetchNotifications, 5000);
+        setInterval(fetchCommunityClips, 25000);
         setInterval(fetchClips, 8000);
         setInterval(fetchLogs, 5000);
         setInterval(fetchHunt, 60000);

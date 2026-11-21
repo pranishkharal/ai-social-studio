@@ -7,14 +7,16 @@ from fastapi import FastAPI, Request, BackgroundTasks, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from datetime import datetime
+import requests
 from pydantic import BaseModel
 
-from config import BASE_DIR, EDITED_DIR, STREAMERS_TO_MONITOR, AUTO_CLIP_ENABLED
+from config import BASE_DIR, CLIPS_DIR, EDITED_DIR, STREAMERS_TO_MONITOR, AUTO_CLIP_ENABLED
 from database import (
     get_all_streamers, get_all_clips, get_recent_logs, 
     get_connection, log_event, update_streamer_status,
     get_notifications, mark_notification_read, mark_all_notifications_read,
-    update_clip_approval, toggle_streamer_monitoring, delete_clip
+    update_clip_approval, toggle_streamer_monitoring, delete_clip, add_notification
 )
 from ai_story_engine import PRD_CATEGORIES
 from kick_monitor import KickMonitor
@@ -440,3 +442,130 @@ class MonitoringReq(BaseModel):
 async def toggle_streamer(username: str, req: MonitoringReq):
     toggle_streamer_monitoring(username, req.enabled)
     return {"status": "updated", "username": username, "enabled": req.enabled}
+
+
+# ---------------------------------------------------------------------------
+# Kick Community Clips (Browse viewer-published clips & 1-click AI Convert)
+# ---------------------------------------------------------------------------
+
+SEEN_COMMUNITY_CLIP_IDS = set()
+INITIALIZED_COMMUNITY_STREAMERS = set()
+
+@app.get("/api/kick/community-clips")
+async def get_kick_community_clips(streamer: str = "westcol", sort: str = "date", time_range: str = "day"):
+    """Fetch viewer/community clips from Kick for a streamer."""
+    try:
+        clean_streamer = streamer.strip().lower()
+        url = f"https://kick.com/api/v2/channels/{clean_streamer}/clips?sort={sort}&time={time_range}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+        }
+        resp = requests.get(url, headers=headers, timeout=6)
+        if resp.status_code != 200:
+            return {"clips": [], "error": f"Kick API returned {resp.status_code}"}
+        data = resp.json()
+        raw_clips = data.get("clips", [])
+        
+        conn = get_connection()
+        existing_titles = set(row[0] for row in conn.execute("SELECT title FROM clips").fetchall())
+        conn.close()
+
+        is_first_load = clean_streamer not in INITIALIZED_COMMUNITY_STREAMERS
+        formatted = []
+        new_clip_count = 0
+
+        for c in raw_clips:
+            clip_id = c.get("id")
+            title = c.get("title", "")
+            clip_url = c.get("clip_url") or c.get("video_url")
+            thumb = c.get("thumbnail_url")
+            creator = c.get("creator", {}).get("username", "Viewer")
+            views = c.get("views", 0)
+            duration = c.get("duration", 30)
+            created_at = c.get("created_at", "")
+            
+            is_new = False
+            if clip_id:
+                if is_first_load:
+                    SEEN_COMMUNITY_CLIP_IDS.add(clip_id)
+                elif clip_id not in SEEN_COMMUNITY_CLIP_IDS:
+                    SEEN_COMMUNITY_CLIP_IDS.add(clip_id)
+                    is_new = True
+                    new_clip_count += 1
+                    try:
+                        add_notification(
+                            title=f"🎬 New Clip: {title[:40]}",
+                            message=f"Viewer '{creator}' just clipped {clean_streamer} on Kick!",
+                            notif_type="kick_community_clip",
+                            streamer=clean_streamer
+                        )
+                    except Exception:
+                        pass
+
+            formatted.append({
+                "id": clip_id,
+                "title": title,
+                "clip_url": clip_url,
+                "thumbnail_url": thumb,
+                "creator": creator,
+                "views": views,
+                "duration": duration,
+                "created_at": created_at,
+                "is_new": is_new,
+                "already_edited": any(title.lower() in et.lower() for et in existing_titles if et) if title else False
+            })
+
+        INITIALIZED_COMMUNITY_STREAMERS.add(clean_streamer)
+        return {"clips": formatted, "streamer": clean_streamer, "new_count": new_clip_count}
+    except Exception as e:
+        log_event("WARNING", "WebAPI", f"Failed fetching Kick community clips: {e}")
+        return {"clips": [], "error": str(e)}
+
+
+class ConvertKickClipReq(BaseModel):
+    streamer: str
+    clip_url: str
+    title: Optional[str] = None
+    duration: Optional[int] = 30
+    clip_id: Optional[str] = None
+
+
+@app.post("/api/kick/convert-clip")
+async def convert_kick_clip(req: ConvertKickClipReq, background_tasks: BackgroundTasks):
+    """Download a viewer-made Kick clip, run Whisper STT + Caption Guide, and render 9:16 vertical TikTok video."""
+    def run_conversion():
+        try:
+            import subprocess, re
+            safe_streamer = req.streamer.strip().lower()
+            safe_id = re.sub(r'[^a-zA-Z0-9_-]', '', req.clip_id or 'clip')
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            raw_path = str(CLIPS_DIR / f"{safe_streamer}_kick_{safe_id}_{stamp}_raw.mp4")
+            
+            log_event("INFO", "KickCommunity", f"Downloading Kick community clip: {req.title or req.clip_url}")
+            # Stream-copy directly from Kick m3u8 playlist to local mp4
+            cmd = ["ffmpeg", "-y", "-i", req.clip_url, "-c", "copy", raw_path]
+            p = subprocess.run(cmd, capture_output=True, timeout=90)
+            if p.returncode != 0 or not os.path.exists(raw_path) or os.path.getsize(raw_path) < 1000:
+                log_event("ERROR", "KickCommunity", f"Failed to download Kick clip: {p.stderr.decode('utf-8', 'replace')}")
+                return
+            
+            # Process moment through pipeline (Whisper STT + Caption Guide + 9:16 Crop)
+            log_event("INFO", "KickCommunity", f"Processing Kick clip #{req.clip_id} through AI Social Studio...")
+            pipeline.process_moment(
+                streamer=safe_streamer,
+                raw_clip_path=raw_path,
+                duration=req.duration or 30
+            )
+            add_notification(
+                title=f"🎬 Kick Clip Converted: {req.title or 'Viewer Clip'}",
+                message=f"Successfully edited into 9:16 vertical video with Caption Guide hook!",
+                notif_type="highlight_ready",
+                streamer=safe_streamer
+            )
+        except Exception as e:
+            log_event("ERROR", "KickCommunity", f"Error converting Kick community clip: {e}")
+
+    background_tasks.add_task(run_conversion)
+    return {"status": "started", "message": f"Downloading and converting Kick clip '{req.title or ''}' into 9:16 vertical format"}
+
