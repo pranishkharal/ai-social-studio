@@ -12,6 +12,15 @@ speakers, canonical per-speaker crop) and
 clipping/studio/render_split_screen.py (vertically stacked panels, 4 px
 divider, 3 px active-speaker border, inactive panel darkened 15%).
 
+The format-overlay builders at the bottom (``build_badge_filter``,
+``build_waitforit_filter``, ``build_reveal_filter``,
+``build_progress_bar_filter``) are the same idea for the multi-part
+formats in clip_formats.py and the themes in themes.py: small video-only
+filter chains applied on top of a finished 9:16 clip. And
+``build_speaker_layout_filter`` is the camera-switch builder extended
+with split-screen spans, for the speaker data speaker_framing.py
+produces (fast line trades become a split instead of a flicker).
+
 Shared input contract — a *trajectory* describes how to crop one speaker
 from the source frame into a 9:16 panel:
 
@@ -293,4 +302,297 @@ def build_split_screen_filter(speakers, active_speaker=None, width: int = DEFAUL
     parts.append(
         f"{panel_labels[0]}[split_div]{panel_labels[1]}vstack=inputs=3{out_label}"
     )
+    return ";".join(parts), out_label
+
+
+# ---------------------------------------------------------------------------
+# Format overlays (multi-part formats + themes) — pure string builders.
+#
+# These build the small ffmpeg filter chains clip_formats.py and
+# clip_editor.py apply on top of a finished 9:16 clip: corner badges
+# ("EARLIER", "STRIKE 1/3"), the wait-for-it tag + progress bar, the
+# reveal blur, and the theme progress bar. They are VIDEO ONLY (audio is
+# copied by the caller) and never execute ffmpeg.
+# ---------------------------------------------------------------------------
+
+BADGE_Y = 215            # corner badges sit under the platform's top UI
+BADGE_FONT_SIZE = 100
+WAITFORIT_TAG_Y = 215
+REVEAL_BLUR_HEIGHT = 620  # reveal blur stops above the hook (y ~ 680)
+SPEAKER_MIN_HOLD = 1.5   # seconds; matches speaker_framing.MIN_HOLD
+
+
+def _drawtext_font():
+    """
+    drawtext font argument: an explicit fontfile when a bold font is
+    installed, else a fontconfig name (ffmpeg resolves it when
+    fontconfig is available). Returns e.g. "fontfile=/usr/.../DejaVuSans-Bold.ttf"
+    or "font='DejaVu Sans'".
+    """
+    try:
+        from platform_utils import find_font
+        path = find_font(["arialbd.ttf", "arial.ttf",
+                          "DejaVuSans-Bold.ttf", "impact.ttf"])
+        if path:
+            escaped = str(path).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+            return f"fontfile={escaped}"
+    except Exception:
+        pass
+    return "font='DejaVu Sans'"
+
+
+def _escape_drawtext(text: str) -> str:
+    """Escape text for ffmpeg drawtext: backslash, quote and colon are
+    special in filter args, and '%' would start an expansion."""
+    return (" ".join(str(text).split())
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace(":", "\\:")
+            .replace("%", ""))
+
+
+def drawtext_filter(text, size=BADGE_FONT_SIZE, x="50", y=BADGE_Y,
+                    color="white", box=None, enable=None, border_w=None):
+    """
+    One drawtext filter (bold font, black outline). ``box`` is a pill
+    colour behind the text (e.g. "black@0.55"); ``enable`` is an ffmpeg
+    time expression (e.g. "lt(t,4.5)") or None for always-on.
+    """
+    size_int = int(size)
+    bw = size_int // 14 + 3 if border_w is None else int(border_w)
+    filt = (f"drawtext={_drawtext_font()}:text='{_escape_drawtext(text)}':"
+            f"fontsize={size}:fontcolor={color}:borderw={bw}:"
+            f"bordercolor=black:x={x}:y={y}")
+    if box:
+        filt += f":box=1:boxcolor={box}:boxborderw={size_int // 4}"
+    if enable:
+        filt += f":enable='{enable}'"
+    return filt
+
+
+def build_badge_filter(text, color="white", x=50, y=BADGE_Y,
+                       size=BADGE_FONT_SIZE, box="black@0.55"):
+    """
+    Corner badge overlay ("EARLIER", "STRIKE 1/3", "#3", "THEN") for a
+    finished 9:16 clip. Returns a single drawtext filter string for
+    ``-vf`` (video only; the caller copies audio).
+    """
+    return drawtext_filter(text, size=size, x=x, y=y, color=color, box=box)
+
+
+def build_waitforit_filter(payoff_t, tag="WAIT FOR IT",
+                           tag_color="white", tag_box="0xE11D48@0.9",
+                           bar_color="0xFFD400", bar_y=170):
+    """
+    Wait-for-it overlay: a tag + a progress bar that fills until the
+    payoff, then both vanish with a white flash at the payoff second.
+
+    Returns a comma-joined filter chain for ``-vf`` (video only).
+    """
+    payoff = float(payoff_t)
+    enable = f"lt(t,{payoff:.2f})"
+    return ",".join([
+        drawtext_filter(tag, size=100, x="(w-text_w)/2", y=WAITFORIT_TAG_Y,
+                        color=tag_color, box=tag_box, enable=enable),
+        f"drawbox=x=0:y={bar_y}:w=iw:h=18:color=black@0.5:t=fill:"
+        f"enable='{enable}'",
+        f"drawbox=x=0:y={bar_y}:w='iw*min(t/{payoff:.2f},1)':h=18:"
+        f"color={bar_color}:t=fill:enable='{enable}':replace=0",
+        f"drawbox=x=0:y=0:w=iw:h=ih:color=white@0.45:t=fill:"
+        f"enable='between(t,{payoff:.2f},{payoff + 0.08:.2f})'",
+    ])
+
+
+def build_reveal_filter(reveal_t, tag="WATCH HIS FACE",
+                        blur_height=REVEAL_BLUR_HEIGHT, tag_color="white",
+                        tag_box="0xE11D48@0.9", width=DEFAULT_WIDTH):
+    """
+    Reveal overlay: the top of the frame (the facecam zone) is blurred
+    and darkened for ``reveal_t`` seconds while the game plays below,
+    with a tag; then it clears with a white flash.
+
+    Returns a filtergraph string for ``-vf`` (video only). The graph
+    splits the input, blurs the top crop, and overlays it back with a
+    time-gated enable, so after ``reveal_t`` the original frame passes
+    through untouched. ``width`` is the clip width (1080 for a finished
+    9:16 clip); ``blur_height`` is tuned for a 1920-high frame.
+    """
+    reveal = float(reveal_t)
+    tag_filt = drawtext_filter(tag, size=90, x="(w-text_w)/2", y=BADGE_Y,
+                               color=tag_color, box=tag_box,
+                               enable=f"lt(t,{reveal:.2f})")
+    flash = (f"drawbox=x=0:y=0:w=iw:h=ih:color=white@0.45:t=fill:"
+             f"enable='between(t,{reveal:.2f},{reveal + 0.08:.2f})'")
+    return (
+        f"split[a][b];"
+        f"[a]crop={int(width)}:{int(blur_height)}:0:0,boxblur=45:3,"
+        f"eq=brightness=-0.35[bl];"
+        f"[b][bl]overlay=0:0:enable='lt(t,{reveal:.2f})',"
+        f"{tag_filt},{flash}"
+    )
+
+
+def build_progress_bar_filter(duration, color="FFE500", height=12,
+                              y="ih-12"):
+    """
+    Theme progress bar: a thin bar along the bottom of the frame that
+    fills with the clip's progress. Returns a comma-joined filter chain
+    for ``-vf`` (video only). ``color`` is a 6-digit hex string without
+    '#' (e.g. "FFE500").
+    """
+    dur = max(float(duration), 0.1)
+    hex_color = str(color).strip().lstrip("#")
+    if len(hex_color) != 6:
+        hex_color = "FFE500"
+    return ",".join([
+        f"drawbox=x=0:y={y}:w=iw:h={int(height)}:color=black@0.35:t=fill",
+        f"drawbox=x=0:y={y}:w='iw*min(t/{dur:.2f},1)':h={int(height)}:"
+        f"color=0x{hex_color}:t=fill:replace=0",
+    ])
+
+
+def build_speaker_layout_filter(segments, trajectories, width=DEFAULT_WIDTH,
+                                height=DEFAULT_HEIGHT,
+                                min_hold=SPEAKER_MIN_HOLD,
+                                fps=DEFAULT_FPS, source_label="[0:v]",
+                                divider=DIVIDER_HEIGHT):
+    """
+    Camera-switch + split-screen in one filter: the full 9:16 crop cuts
+    to whoever is speaking, and spans where two people trade lines fast
+    become a vertical split screen (first speaker on top).
+
+    Args:
+        segments: list of {"speaker": str, "start": float, "end": float}
+            turns; a turn with a "split": [name_a, name_b] key is
+            rendered as a split screen of those two speakers (as
+            produced by ``speaker_framing.segments_from_labels``).
+        trajectories: dict mapping speaker name -> trajectory dict (see
+            module docstring). Every speaker in ``segments`` (including
+            both halves of a split) must have one.
+        min_hold: minimum seconds before switching (default 1.5, the
+            active-speaker contract in speaker_framing).
+
+    Returns (filter_complex_string, "[speaker_out]"). Video only; the
+    caller maps audio separately.
+    """
+    if not segments:
+        raise ValueError("segments must not be empty")
+
+    # Normalise + sort, preserving the "split" key; merge consecutive
+    # same-speaker turns, then enforce the minimum hold (a short turn is
+    # absorbed into the previous turn, or into the next when first).
+    ordered = []
+    for seg in segments:
+        item = {"speaker": str(seg["speaker"]),
+                "start": float(seg["start"]), "end": float(seg["end"])}
+        if seg.get("split"):
+            item["split"] = [str(s) for s in seg["split"]]
+        if item["end"] > item["start"]:
+            ordered.append(item)
+    ordered.sort(key=lambda s: s["start"])
+    merged = []
+    for seg in ordered:
+        if (merged and merged[-1]["speaker"] == seg["speaker"]
+                and merged[-1].get("split") == seg.get("split")
+                and seg["start"] - merged[-1]["end"] <= SAME_SPEAKER_MERGE_GAP):
+            merged[-1]["end"] = max(merged[-1]["end"], seg["end"])
+        else:
+            merged.append(dict(seg))
+    held = []
+    for seg in merged:
+        if seg["end"] - seg["start"] >= min_hold or not held:
+            held.append(dict(seg))
+        else:
+            held[-1]["end"] = seg["end"]
+    if len(held) > 1 and held[0]["end"] - held[0]["start"] < min_hold:
+        held[1]["start"] = held[0]["start"]
+        held.pop(0)
+    if not held:
+        raise ValueError("segments contain no usable (positive-length) turns")
+
+    for seg in held:
+        names = seg.get("split") or [seg["speaker"]]
+        for name in names:
+            if name not in trajectories:
+                raise ValueError(f"No trajectory provided for speaker {name!r}")
+
+    # How many times each speaker is used, per crop mode ("full" for
+    # single turns, "half" for split panels): an ffmpeg filter output
+    # may only be consumed once, so a speaker used twice needs a split.
+    use_count = {}
+    for seg in held:
+        if seg.get("split"):
+            for name in seg["split"][:2]:
+                use_count[(name, "half")] = use_count.get((name, "half"), 0) + 1
+        else:
+            use_count[(seg["speaker"], "full")] = (
+                use_count.get((seg["speaker"], "full"), 0) + 1)
+
+    panel_h = (height - divider) // 2
+    parts = []
+    streams = {}
+
+    def _crop_stream(name, mode):
+        """Label of a crop stream for (speaker, mode), building it (and
+        its split copies) on first use. Returns a list of labels, one
+        per use."""
+        key = (name, mode)
+        if key in streams:
+            return streams[key]
+        safe = _safe_label(name)
+        if mode == "full":
+            label = f"[lay_full_{safe}]"
+            parts.append(_crop_filter(source_label, trajectories[name],
+                                      label, width, height, fps))
+        else:
+            label = f"[lay_half_{safe}]"
+            parts.append(_crop_filter(source_label, trajectories[name],
+                                      label, width, panel_h, fps))
+        count = use_count.get(key, 1)
+        if count > 1:
+            copies = [f"[lay_{mode}_{safe}_{i}]" for i in range(count)]
+            parts.append(f"{label}split={count}{''.join(copies)}")
+            streams[key] = copies
+        else:
+            streams[key] = [label]
+        return streams[key]
+
+    seg_labels = []
+    use_index = {}
+    for i, seg in enumerate(held):
+        out_label = f"[lay_seg{i}]"
+        if seg.get("split"):
+            pair = seg["split"][:2]
+            panel_labels = []
+            for name in pair:
+                idx = use_index.get((name, "half"), 0)
+                use_index[(name, "half")] = idx + 1
+                panel_labels.append(_crop_stream(name, "half")[idx])
+            div_label = f"[lay_div{i}]"
+            parts.append(f"color=c=0x808080:s={width}x{divider}{div_label}")
+            stack_label = f"[lay_stack{i}]"
+            parts.append(
+                f"{panel_labels[0]}{div_label}{panel_labels[1]}"
+                f"vstack=inputs=3{stack_label}")
+            parts.append(
+                f"{stack_label}trim=start={_fmt_time(seg['start'])}"
+                f":end={_fmt_time(seg['end'])},setpts=PTS-STARTPTS,"
+                f"setsar=1{out_label}")
+        else:
+            name = seg["speaker"]
+            idx = use_index.get((name, "full"), 0)
+            use_index[(name, "full")] = idx + 1
+            parts.append(
+                f"{_crop_stream(name, 'full')[idx]}"
+                f"trim=start={_fmt_time(seg['start'])}"
+                f":end={_fmt_time(seg['end'])},setpts=PTS-STARTPTS,"
+                f"setsar=1{out_label}")
+        seg_labels.append(out_label)
+
+    out_label = "[speaker_out]"
+    if len(seg_labels) == 1:
+        parts[-1] = parts[-1].replace(seg_labels[0], out_label)
+    else:
+        parts.append(f"{''.join(seg_labels)}concat=n={len(seg_labels)}"
+                     f":v=1:a=0{out_label}")
     return ";".join(parts), out_label

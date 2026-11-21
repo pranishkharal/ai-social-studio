@@ -309,6 +309,9 @@ def test_camera_switch_falls_back_without_speaker_data(tmp_path, monkeypatch):
         def analyze_video_trajectory(self, *a, **k):
             raise RuntimeError("no faces here")
 
+        def close(self):
+            pass  # mirrors SpeakerTracker.close(); edit_clip calls it.
+
         def get_ffmpeg_crop_filter(self, *a, **k):
             raise AssertionError("must not be called")
 
@@ -358,6 +361,9 @@ def test_split_screen_falls_back_without_speaker_data(tmp_path, monkeypatch):
         def analyze_video_trajectory(self, *a, **k):
             raise RuntimeError("no faces here")
 
+        def close(self):
+            pass  # mirrors SpeakerTracker.close(); edit_clip calls it.
+
     tracker_mod.SpeakerTracker = BoomTracker
     monkeypatch.setitem(sys.modules, "speaker_tracker", tracker_mod)
 
@@ -399,10 +405,10 @@ def test_process_moment_uses_profile_duration(fresh_db, tmp_path, monkeypatch):
         lambda streamer, duration: extract_calls.append(duration) or str(raw))
     monkeypatch.setattr(
         pipeline.detector, "evaluate_clip",
-        lambda path: {"hype_score": 80.0, "trigger_reason": "test"})
+        lambda path, **kwargs: {"hype_score": 80.0, "trigger_reason": "test"})
     monkeypatch.setattr(
         pipeline.ai, "transcribe_clip",
-        lambda path: {"full_text": "hello world", "words": []})
+        lambda path, **kwargs: {"full_text": "hello world", "words": []})
     monkeypatch.setattr(
         pipeline.ai, "analyze_story_and_generate_metadata",
         lambda **kw: {"category": "Funny Moments", "ai_score": 85,

@@ -4,6 +4,173 @@ An ultra-lightweight, automated system to monitor **Kick.com** live streamers, d
 
 ---
 
+## ✨ What's new in v1.4.1 — Quote Line Off by Default
+
+The quote line (the white spoken line under the headline) is now
+**off by default** — Sara's call after watching the demo clips: it
+reads as captioning under the headline. The headline in the white box
+is unchanged. The quote is still picked and stored for every clip; it
+is just not drawn on the video unless you opt in: tick the
+**Quote line** checkbox on the dashboard (clip trigger or the clip's
+re-render panel), pass `quote_line_enabled=True`, or set
+`QUOTE_LINE_ENABLED=true`. See [CHANGELOG.md](CHANGELOG.md).
+
+## ✨ What's new in v1.4.0 — gta6-clipper Upgrade
+
+21 features borrowed from the open-source GTA 6 auto-clipper (MIT
+licence), integrated into the existing features instead of bolted on:
+the hype detector now also watches the video, every clip is
+quality-checked before it is marked ready, and clips can be callbacks,
+compilations and multi-part formats. See [CHANGELOG.md](CHANGELOG.md)
+for the full list.
+
+1. **Visual moment detection** — the hype detector now sees chases,
+   crashes, fights, stunts, reactions and funny moments (optical flow
+   + audio bands + laughter wobble, no AI), and the moment type feeds
+   the story headlines (`visual_moments.py`). Turn it off with
+   `VISUAL_DETECTION_ENABLED=0`.
+2. **Game-event OCR** — reads WASTED / BUSTED / MISSION PASSED banners
+   off the screen (RapidOCR, optional) and adds up to 15 hype points
+   (`game_ocr.py`).
+3. **Automatic clip QC** — every finished clip gets PASS / WARN / FAIL
+   (duration, −14 LUFS loudness, black/frozen frames, cards, silence)
+   before it is marked ready; FAIL gets one automatic re-cut
+   (`clip_qc.py`).
+4. **Loudness normalisation** — every render is normalised to −14 LUFS
+   (two-pass loudnorm) with an audio-only safety pass (`loudness.py`).
+5. **Learn from your own channel** — YouTube Shorts view counts are
+   auto-filled from the channel's public Shorts (yt-dlp, no API key;
+   set `YOUTUBE_CHANNEL_URL`) and the learned rules nudge moment
+   scoring. YouTube only; TikTok stays manual (`channel_learn.py`).
+6. **Multi-part formats** — callback, compilation, escalation,
+   then-vs-now, reveal, chat bubbles and wait-for-it, built from
+   moments the engine already found (`clip_formats.py`,
+   `callback_finder.py`).
+7. **Meme sounds** (opt-in, default off) — numpy-synthesised sounds +
+   ffmpeg visual gags at the payoff, never in the first 3 s
+   (`meme_sounds.py`, `meme_mood=` / `MEME_SOUNDS_ENABLED=1`).
+8. **Active-speaker framing** — camera-switch and split-screen layouts
+   now work for real: lip motion + speech loudness pick who is talking
+   (`speaker_framing.py`).
+9. **Whisper vocabulary prompt** — game + streamer names and chat slang
+   are passed to Whisper so names transcribe correctly
+   (`WHISPER_VOCAB_PROMPT` to override).
+10. **Smarter chat spikes + Kick key negotiation** — spikes count
+    distinct people (bots and floods cannot fake them), and the Kick
+    Pusher key is negotiated fresh on every connect instead of
+    hard-coded (`chat_hype.py`).
+11. **VOD signals** — Twitch viewer clips and YouTube most-replayed
+    peaks now score VOD windows (`vod_signals.py`).
+12. **Peek, voice-over, clip rules, live hunt, streamlink recorder,
+    lite mode** — a 4-frame strip per pick (`peek.py`); record your own
+    line on a clip (`voiceover.py`); per-streamer clip-permission
+    badges (`clip_rules.json`); one panel for who's live on Kick,
+    Twitch and YouTube (`live_hunt.py`); a streamlink fallback recorder
+    (`STREAMLINK_RECORDER=1`); lite mode auto-detects PCs under 12 GB
+    RAM (`lite_mode.py`).
+13. **Translation, YouTube analytics, review UX, self-update** —
+    offline caption translation (Argos, 16 languages); YouTube
+    analytics with retention (needs your API key / OAuth client);
+    A/X keyboard shortcuts, Shorts-by-day view, drag-onto-week
+    scheduling with a dry-run preview; self-update with backup and
+    rollback (`UPDATE_MANIFEST_URL`).
+14. **Rendering refinements** — sentence-boundary snapping, profanity
+    masking in karaoke captions, per-format render cache, and named
+    themes (`themes.json`, `CLIP_THEME`).
+
+## ✨ What's new in v1.3.0 — Face Tracking Upgrade
+
+The banner never covers the streamer's face anymore, MediaPipe face
+tracking works for real, and face-view clips can follow the whole body
+instead of just the face. See [CHANGELOG.md](CHANGELOG.md) for the full
+list.
+
+1. **Face-aware banner placement** — on face-tracking layouts the hook
+   banner and quote line are placed where they do not cover any face in
+   the rendered clip (sampled face boxes mapped through the crop
+   trajectory, including the mirror). The quote placement only applies
+   when the quote line is enabled (off by default since v1.4.1). No
+   faces detected means the fixed
+   positions (banner y 800, quote centred on y 1240). Works with both
+   banner timings (4 s and whole-clip). Non-face-tracking layouts are
+   unchanged (`face_avoidance.py`).
+2. **MediaPipe face tracking works for real** — the backend was
+   rewritten from the dead `mp.solutions` API (removed in mediapipe 1.x
+   — the old code always silently fell back to Haar) to the Tasks API
+   (`mp.tasks.vision.FaceDetector`). The ~230 KB BlazeFace model
+   auto-downloads into `models/` on first use. Known limit, verified on
+   a real adinross capture: BlazeFace sees the frame at 128×128, so it
+   misses small facecam faces (~75 px in a 1920 px frame — 2% detection
+   vs Haar's 100%). When a backend barely detects anything on a video,
+   the tracker now re-analyses it with Haar automatically, so face-view
+   clips stay correct on small-facecam streams.
+3. **Full-body tracking option** — the speaker_tracking layout can
+   follow the streamer's whole body (MediaPipe Pose) instead of the
+   face. Pick it in the dashboard (Layout & Overlay Setup → Tracking
+   Target), per clip via `tracking_target="body"`, or for all clips
+   with `TRACKING_TARGET=body`. Best for IRL / standing / dancing
+   streams; on gameplay streams it can lock onto game characters, so
+   face tracking stays the default. Falls back to face tracking when no
+   body is found. The pose model (~5.8 MB) auto-downloads into `models/`
+   on first use.
+4. **Mirrored face-view fix** — the tracker analyses the unmirrored
+   source but the crop runs after `hflip`, so mirrored face-view clips
+   used to frame the mirror image of the face. The trajectory is now
+   mirrored too, so the crop lands on the face as rendered.
+
+On Linux the MediaPipe Tasks API needs the system EGL/GLES libraries
+(`sudo apt install libegl1 libgles2`); without them MediaPipe init fails
+and the tracker falls back to Haar. `mediapipe>=1.0` is now a real
+dependency in `requirements.txt`.
+
+## ✨ What's new in v1.2.0 — TikTok Clipping Upgrades
+
+Seven features learned from studying three TikTok clipping accounts
+([@zysno](https://www.tiktok.com/@zysno),
+[@godsclipper](https://www.tiktok.com/@godsclipper),
+[@kicksclipping](https://www.tiktok.com/@kicksclipping) — 16 clips
+watched): one peak moment, one bold headline that tells the whole
+story, original audio, no captions, no effects, clips that end and
+loop. See [CHANGELOG.md](CHANGELOG.md) for the full list.
+
+1. **Story headlines** — titles now name the specific moment from the
+   transcript ("Adinross finds his calling") instead of generic
+   "COMPLETELY SPEECHLESS" lines. A smarter local builder does this with
+   no API key; with a Gemini key the LLM prompt demands the same
+   specificity (`story_headlines.py`).
+2. **Quote line** — the best spoken line from the clip as a second
+   caption under the headline (white bold text, black outline, lower
+   third). One static line, not word-by-word captions — subtitles stay
+   off by default. Off by default since v1.4.1: opt in with
+   `QUOTE_LINE_ENABLED=true` or the dashboard checkbox.
+3. **Short-clip mode** — tight 10–15 s clips cut around the single
+   loudest moment (`SHORT_CLIP_ENABLED=true`, `SHORT_CLIP_SECONDS=12`),
+   with a dashboard checkbox on the clip trigger.
+4. **Auto hashtags** — the post caption is written as
+   `title #<streamer> #fyp #kick`, plus a game tag (`#gta6`) when the
+   game is known.
+5. **Soft background music** — a quiet track mixed low under the
+   original audio (base level 0.12, ducked further while someone talks).
+   A gentle ambient track is generated on first use
+   (`assets/bgm/chill/soft_pad.mp3`, synthesized with ffmpeg, royalty-free), so it
+   works out of the box; drop your own MP3s into `assets/bgm/<mood>/`
+   to use them instead. `BGM_ENABLED=true` or the dashboard checkbox.
+6. **VOD / multi-source clipping** — clip past videos, not just live
+   Kick streams: paste a Kick VOD, Twitch VOD/clip or YouTube link
+   (podcasts included) or a local file, and the engine finds the
+   loudest moment and clips it (`vod_clipper.py`, dashboard "Clip a
+   Past Video" panel, or `python3 vod_clipper.py <url-or-file>`; URL
+   downloads need `yt-dlp`, `pip install yt-dlp`).
+7. **Headline timing setting** — the headline (and the quote line,
+   when enabled) can now
+   stay for the whole clip, like the TikTok accounts do, or keep Sara's
+   4-second rule: `BANNER_TIMING=whole_clip` or `4s` (default `4s`),
+   with a dashboard select on the clip trigger.
+
+Also fixed: the render timeout now scales with clip length (1080p60
+renders no longer fail at a fixed 180 s), and renders are verified to
+end abruptly on the moment with no fade-out, so clips loop cleanly.
+
 ## ✨ What's new in v1.1.0 — Live Clipping Upgrades
 
 Seventeen new features plus a Tier 5 of rendering upgrades borrowed from
@@ -37,7 +204,7 @@ you opt in via `.env`. See [CHANGELOG.md](CHANGELOG.md) for the full list.
 17. **Retry + resume + CI** — checkpoints let a failed clip resume mid-pipeline (`/api/clips/{id}/retry`); GitHub Actions runs the test suite.
 
 **Tier 5 — Rendering upgrades**
-- MediaPipe/YOLO face tracking (Haar fallback), kinetic karaoke subtitles (`SUBTITLE_STYLE=karaoke`, only when subtitles are enabled via `ENABLE_SUBTITLES=true`), camera-switch + split-screen layouts, Pexels B-roll, background music with sidechain ducking (`BGM_ENABLED=true`), NVENC/AMF/VAAPI encoder auto-detect (verified with a test encode), and an LLM fallback chain (Gemini → local OpenAI-compatible model → heuristic).
+- MediaPipe/YOLO face tracking with adaptive Haar fallback (a backend that barely detects anything on a video is re-analysed with Haar), face-aware banner placement (the banner dodges the face, and the quote line does too when it is enabled — off by default since v1.4.1), full-body tracking option (MediaPipe Pose), kinetic karaoke subtitles (`SUBTITLE_STYLE=karaoke`, only when subtitles are enabled via `ENABLE_SUBTITLES=true`), camera-switch + split-screen layouts, Pexels B-roll, background music with sidechain ducking (`BGM_ENABLED=true`), NVENC/AMF/VAAPI encoder auto-detect (verified with a test encode), and an LLM fallback chain (Gemini → local OpenAI-compatible model → heuristic).
 
 **Cross-platform + Android phone**
 - Runs on **Windows, macOS and Linux** (same code, `platform_utils.py` handles fonts/paths per OS) — `start.sh` for Mac/Linux, `start.bat`/`start_engine.bat` for Windows, Docker unchanged. The dashboard is **phone-friendly**: open it from your Android browser on the same Wi-Fi (`--host 0.0.0.0`, see below).
@@ -80,7 +247,8 @@ flowchart TD
 - `kick_monitor.py`: Detects live streams with no browser load and maintains a 10-minute rolling buffer.
 - `hype_detector.py`: Measures audio volume spikes in the stream (screams, laughter, hype) in 0.2 seconds.
 - `ai_story_engine.py`: Uses Google Gemini and local Whisper to extract the clip's full story, punchline, viral title, hook banner and captions.
-- `clip_editor.py`: Converts 16:9 horizontal video to 9:16 vertical TikTok format, adds a top hook banner that shows for the first 4 seconds only (then fades out; the Kick bar stays visible), and word-by-word subtitles only when subtitles are enabled.
+- `clip_editor.py`: Converts 16:9 horizontal video to 9:16 vertical TikTok format, adds a top hook banner that shows for the first 4 seconds only (then fades out; the Kick bar stays visible), and word-by-word subtitles only when subtitles are enabled. The quote line (one spoken line under the headline) is off by default since v1.4.1 — opt in with `QUOTE_LINE_ENABLED=true`, `quote_line_enabled=True`, or the dashboard checkbox. Face-tracking layouts place the banner around the rendered face (and the quote line too, when enabled — see `face_avoidance.py`) and can follow the whole body instead of the face (`tracking_target="body"`).
+- `speaker_tracker.py` / `face_avoidance.py` / `body_tracker.py`: Face-tracked auto-framing for 9:16 clips (MediaPipe Tasks API, YOLO or Haar backends, with adaptive Haar fallback when a backend barely detects anything); pure helpers that map tracker face boxes to output coordinates and pick banner/quote positions that do not overlap any face; full-body tracking via MediaPipe Pose as an alternative framing source.
 - `screen_controller.py`: Playwright-based screen/browser agent that can scrub the Kick player back and forth and auto-upload to TikTok.
 - `web_dashboard.py`: Local FastAPI web control centre (`http://localhost:8500`).
 - `database.py`: SQLite database storing all streamers, detected clips and system logs.

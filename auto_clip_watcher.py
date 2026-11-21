@@ -13,7 +13,10 @@ How it works:
 * When chat hype is available (``CHAT_HYPE_ENABLED=true`` and
   ``websocket-client`` installed), the chat score for that streamer is
   blended in: combined = 0.6 * audio + 0.4 * chat. Without chat, the audio
-  score alone decides.
+  score alone decides. The chat score includes the distinct-chatter
+  spike bonus (many DIFFERENT people chatting at once -- see
+  chat_hype.py), so a real crowd reaction can trigger a clip even when
+  the audio is quiet, while bots and one-person floods cannot.
 * When the combined score reaches ``AUTO_CLIP_MIN_SCORE`` (default 70) and
   the cooldown/duplicate guard (``clip_dedup.ClipCooldown``) allows it, the
   watcher fires ``pipeline.process_moment(streamer, duration)`` in a worker
@@ -305,6 +308,15 @@ class AutoClipWatcher:
             chatroom_id = info.get("chatroom_id")
             if chatroom_id is None:
                 return None
+            # Hand the Kick channel id to the chat client: with it, the
+            # client negotiates the current Pusher app key + cluster
+            # from Kick on every (re)connect instead of trusting the
+            # hard-coded key (which Kick has rotated before).
+            channel_id = info.get("channel_id")
+            if channel_id is not None:
+                setter = getattr(self.chat_client, "set_channel_id", None)
+                if callable(setter):
+                    setter(channel_id)
             try:
                 self.chat_client.subscribe(chatroom_id)
             except Exception:

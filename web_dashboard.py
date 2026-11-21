@@ -56,6 +56,13 @@ except Exception as e:
     log_event("WARNING", "WebAPI", f"Earnings/analytics/queue routers not mounted: {e}")
 
 try:
+    import gta6_routers
+    app.include_router(gta6_routers.router)
+    log_event("INFO", "WebAPI", "gta6-clipper routers mounted (voice-over, live hunt, clip rules, YouTube stats, self-update, schedule dry-run)")
+except Exception as e:
+    log_event("WARNING", "WebAPI", f"gta6-clipper routers not mounted: {e}")
+
+try:
     import auth
     app.include_router(auth.router)
     log_event("INFO", "WebAPI", "Dashboard login router mounted at /login")
@@ -138,16 +145,36 @@ class ClipTriggerReq(BaseModel):
     mirror: bool = True
     hdr_sharpness: bool = True
     layout: str = "speaker_tracking"
+    tracking_target: str = "face"  # "face" (default) or "body" — what speaker_tracking locks onto
     auto_captions: bool = False
     caption_position: str = "top"
     custom_caption: str = ""
+    # TikTok upgrades (v1.2.0): None = the matching .env setting decides.
+    short_clip: Optional[bool] = None  # tight clip around the peak moment
+    banner_timing: Optional[str] = None  # "4s" (default) or "whole_clip"
+    bgm: Optional[bool] = None  # soft background music under the audio
+    game: Optional[str] = None  # e.g. "GTA 6" -> adds a #gta6 hashtag
+    # Quote line (v1.4.1): one static spoken line under the headline.
+    # Off by default — the dashboard checkbox opts in per clip.
+    quote_line_enabled: bool = False
 
 class RerenderReq(BaseModel):
     caption_position: str = "top"
     custom_caption: str = ""
     layout: str = "speaker_tracking"
+    tracking_target: str = "face"  # "face" (default) or "body"
     mirror: bool = True
     hdr_sharpness: bool = True
+    banner_timing: Optional[str] = None  # "4s" (default) or "whole_clip"
+    quote_line: Optional[str] = None  # None = reuse the stored quote line
+    # Quote line (v1.4.1): off by default — the modal checkbox opts in.
+    quote_line_enabled: bool = False
+
+class VodClipReq(BaseModel):
+    source: str  # Kick/Twitch/YouTube URL or a local video file path
+    streamer: Optional[str] = None  # default: slug from the URL, else "vod"
+    duration: Optional[int] = 25
+    layout: Optional[str] = None
 
 class ScrubReq(BaseModel):
     streamer: str
@@ -219,19 +246,46 @@ async def trigger_clip(req: ClipTriggerReq, background_tasks: BackgroundTasks):
     """Triggers instant clip capture, hype analysis, storytelling, and vertical rendering with Prestige rules."""
     def run_pipeline():
         pipeline.process_moment(
-            streamer=req.streamer, 
+            streamer=req.streamer,
             duration=req.duration,
             mirror=req.mirror,
             hdr_sharpness=req.hdr_sharpness,
             layout=req.layout,
+            tracking_target=req.tracking_target,
             auto_captions=req.auto_captions,
             caption_position=req.caption_position,
-            custom_caption=req.custom_caption
+            custom_caption=req.custom_caption,
+            short_clip=req.short_clip,
+            banner_timing=req.banner_timing,
+            quote_line_enabled=req.quote_line_enabled,
+            bgm=req.bgm,
+            game=req.game
         )
 
     background_tasks.add_task(run_pipeline)
     duration_label = f"{req.duration}s" if req.duration else "profile-length"
     return {"status": "started", "message": f"Processing {duration_label} clip for {req.streamer} (Position='{req.caption_position}')."}
+
+@app.post("/api/vod/clip")
+async def vod_clip(req: VodClipReq, background_tasks: BackgroundTasks):
+    """Clip the best moment from a past video (TikTok upgrade, v1.2.0).
+
+    Source can be a Kick VOD, Twitch VOD/clip, YouTube link (podcasts
+    included) or a local video file. Downloads with yt-dlp when the
+    source is a URL, finds the loudest moment, and runs it through the
+    normal pipeline. Runs in the background; the finished clip appears
+    in the clips list.
+    """
+    def run_vod():
+        try:
+            from vod_clipper import clip_vod
+            clip_vod(source=req.source, streamer=req.streamer,
+                     duration=req.duration or 25, layout=req.layout)
+        except Exception as e:
+            log_event("ERROR", "WebAPI", f"VOD clip failed for {req.source}: {e}")
+
+    background_tasks.add_task(run_vod)
+    return {"status": "started", "message": f"Clipping best moment from {req.source}"}
 
 @app.post("/api/clips/{clip_id}/rerender")
 async def rerender_clip_endpoint(clip_id: int, req: RerenderReq, background_tasks: BackgroundTasks):
@@ -241,8 +295,12 @@ async def rerender_clip_endpoint(clip_id: int, req: RerenderReq, background_task
             caption_position=req.caption_position,
             custom_caption=req.custom_caption,
             layout=req.layout,
+            tracking_target=req.tracking_target,
             mirror=req.mirror,
-            hdr_sharpness=req.hdr_sharpness
+            hdr_sharpness=req.hdr_sharpness,
+            banner_timing=req.banner_timing,
+            quote_line=req.quote_line,
+            quote_line_enabled=req.quote_line_enabled
         )
     background_tasks.add_task(run_rerender)
     return {"status": "started", "message": f"Re-rendering clip #{clip_id} with caption '{req.caption_position}'"}

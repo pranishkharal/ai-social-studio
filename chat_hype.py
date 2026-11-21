@@ -14,8 +14,12 @@ kickforge, kick-chat-wrapper and the kick-api Rust crate:
 
   Current app key ``32cbd69e4b950bf97679``. Kick has rotated this key before
   (an older key, ``eb1d5f283081a78b932c``, appears in older libraries), so it
-  is overridable via ``KICK_PUSHER_APP_KEY``. If chat stops flowing, check the
-  network tab on kick.com for the current ``pusher`` URL.
+  is overridable via ``KICK_PUSHER_APP_KEY`` -- and, when the Kick channel
+  id is known, the client negotiates the CURRENT key + cluster from Kick's
+  own realtime endpoint on every (re)connect (``get_pusher_url``), falling
+  back to this hard-coded key when negotiation fails. If chat stops flowing
+  and no channel id is set, check the network tab on kick.com for the
+  current ``pusher`` URL.
 
 * One websocket connection carries many chatrooms. Subscribe per chatroom
   with a ``pusher:subscribe`` event for channel ``chatrooms.{id}.v2``.
@@ -36,7 +40,11 @@ kickforge, kick-chat-wrapper and the kick-api Rust crate:
 What is tracked per chatroom (rolling window, default 10 s):
 * messages/second vs. a slow-moving baseline (spike detection),
 * emote storms (configurable emote list),
-* keyword bursts ("CLIP IT", "WTF", "LOL", ...).
+* keyword bursts ("CLIP IT", "WTF", "LOL", ...),
+* distinct-chatter spikes: different PEOPLE chatting in the last 10 s
+  vs. the median of the previous 5 minutes (>= 3x and >= 15 people,
+  60 s cooldown; bots, ad links and !commands filtered out). One
+  spammer flooding 200 messages is 1 chatter: no spike.
 
 ``get_hype_score(chatroom_id)`` combines those into a 0-100 score that the
 auto-clip watcher blends with the audio score.
@@ -58,8 +66,11 @@ Environment variables:
 import json
 import os
 import re
+import statistics
 import threading
 import time
+import urllib.error
+import urllib.request
 from collections import deque
 
 from config import CHAT_VELOCITY_SPIKE_MULTIPLIER
@@ -73,9 +84,23 @@ except ImportError:  # pragma: no cover - exercised by tests via monkeypatch
     _WEBSOCKET_AVAILABLE = False
 
 # Verified current Pusher app key for kick.com chat (see module docstring).
+# This is only the FALLBACK now: get_pusher_url() negotiates the current
+# key + cluster from Kick's own realtime endpoint whenever it knows the
+# channel id (Kick has rotated the key before -- see negotiate below).
 DEFAULT_PUSHER_APP_KEY = "32cbd69e4b950bf97679"
 PUSHER_CLUSTER_HOST = "ws-us2.pusher.com"
 PUSHER_CLIENT_QUERY = "protocol=7&client=js&version=8.4.0&flash=false"
+
+# Kick hands out the current Pusher app key + cluster per request, no
+# login (web.kick.com realtime negotiation). The {channel_id} is the
+# Kick *channel* id (kick_monitor stores it as "channel_id"), NOT the
+# chatroom id used for subscriptions.
+KICK_REALTIME_URL = (
+    "https://web.kick.com/api/v1/realtime/channels/{channel_id}"
+    "/chat/connection"
+)
+KICK_REALTIME_TIMEOUT = float(
+    os.getenv("KICK_REALTIME_TIMEOUT", "10") or 10)
 
 DEFAULT_EMOTES = [
     "KEKW", "Pog", "OMEGALUL", "LUL", "Kappa",
@@ -119,12 +144,62 @@ def _env_list(name, default):
     return [item for item in items if item]
 
 
-def get_pusher_url(app_key=None):
-    """Full Pusher websocket URL for Kick chat."""
-    key = app_key or os.getenv("KICK_PUSHER_APP_KEY", DEFAULT_PUSHER_APP_KEY)
-    return (
-        f"wss://{PUSHER_CLUSTER_HOST}/app/{key}?{PUSHER_CLIENT_QUERY}"
-    )
+def negotiate_pusher_credentials(channel_id, opener=None,
+                               timeout=KICK_REALTIME_TIMEOUT):
+    """Ask Kick for the current Pusher app key + cluster (no login).
+
+    POSTs to Kick's realtime negotiation endpoint for *channel_id* and
+    returns ``(app_key, cluster)``. Raises on any failure (network,
+    unexpected shape) -- the caller falls back to the hard-coded key.
+    ``opener`` is an injectable ``(url, body_bytes, headers) -> dict``
+    for tests; the default uses urllib with a browser User-Agent.
+    """
+    body = json.dumps({
+        "client": {"id": "ai-social-studio", "type": "web"},
+        "capabilities": {"accepted_providers": [{"provider": "pusher"}]},
+    }).encode()
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json",
+    }
+    url = KICK_REALTIME_URL.format(channel_id=int(channel_id))
+    if opener is not None:
+        data = opener(url, body, headers)
+    else:
+        request = urllib.request.Request(url, body, headers)
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            data = json.load(response)
+    credentials = (data["data"]["connections"][0]["credentials"])
+    return credentials["app_key"], credentials["cluster"]
+
+
+def get_pusher_url(app_key=None, channel_id=None, cluster=None):
+    """Full Pusher websocket URL for Kick chat.
+
+    Priority: an explicit ``app_key`` argument, then the
+    ``KICK_PUSHER_APP_KEY`` env override, then -- when ``channel_id``
+    is known -- the key + cluster negotiated from Kick's realtime
+    endpoint on this very call (Kick rotates the key, so negotiating
+    per connection means a rotation can never silently kill chat).
+    Any negotiation failure falls back to the hard-coded default key
+    and cluster, so chat keeps working exactly as before.
+    """
+    key = app_key or os.getenv("KICK_PUSHER_APP_KEY")
+    host = PUSHER_CLUSTER_HOST
+    if cluster:
+        host = f"ws-{cluster}.pusher.com"
+    if not key and channel_id is not None:
+        try:
+            key, negotiated_cluster = negotiate_pusher_credentials(
+                channel_id)
+            host = f"ws-{negotiated_cluster}.pusher.com"
+        except Exception as e:
+            log_event("WARNING", "KickChatClient",
+                      f"Pusher key negotiation failed ({e}); using the "
+                      f"built-in key")
+    key = key or DEFAULT_PUSHER_APP_KEY
+    return f"wss://{host}/app/{key}?{PUSHER_CLIENT_QUERY}"
 
 
 def chatroom_channel(chatroom_id):
@@ -141,6 +216,43 @@ def extract_emote_names(content):
     for word in re.findall(r"[A-Za-z0-9]+", content or ""):
         found.add(word.upper())
     return found
+
+
+# Well-known chat bots (lowercase). A bot's messages never count toward
+# the distinct-chatter spike -- one bot flooding chat must not look
+# like a crowd.
+BOT_USERNAMES = {
+    "nightbot", "streamelements", "streamlabs", "moobot", "fossabot",
+    "wizebot", "botrixoficial", "sery_bot", "kofistreambot",
+    "pokemoncommunitygame", "kickbot", "bottrix",
+}
+
+# Distinct-chatter spike rule (see ChatHypeTracker.check_chat_spike):
+# chatters in the last 10 s >= 3x the median of the previous 5 minutes'
+# 10 s bins, AND >= 15 people, with a 60 s cooldown between spikes.
+SPIKE_WINDOW_SECONDS = 10
+SPIKE_HISTORY_SECONDS = 300   # 5 minutes of history bins
+SPIKE_MIN_HISTORY_BINS = 12   # need 2 minutes of history before firing
+SPIKE_RATIO = 3.0
+SPIKE_MIN_CHATTERS = 15
+SPIKE_COOLDOWN_SECONDS = 60
+# Huge chats (median >= 20 chatters per 10 s bin) are busy all the
+# time: a bin 1.25x busier than its own 5-minute neighbourhood (and
+# beyond Poisson noise) counts as a spike instead.
+SPIKE_HUGE_CHAT_MEDIAN = 20
+SPIKE_LOCAL_RATIO = 1.25
+# Hype-score points a live distinct-chatter spike adds (capped at 100
+# with the rest of the score).
+SPIKE_SCORE_BONUS = 20.0
+
+
+def is_bot_message(sender, content):
+    """True when a message should not count as a human chatter: a known
+    bot name, an ad link, or a ``!command``."""
+    if sender and str(sender).lower() in BOT_USERNAMES:
+        return True
+    text = content or ""
+    return "http" in text or ".com/" in text or text.startswith("!")
 
 
 class ChatHypeTracker:
@@ -163,10 +275,23 @@ class ChatHypeTracker:
         self._lock = threading.Lock()
         self._baseline_mps = 0.0  # slow EMA of messages/second
         self.total_messages = 0
+        # Distinct-chatter spike tracking: (monotonic_ts, sender) for
+        # human messages only, kept for the spike window + 5 min of
+        # history (330 s). One spammer flooding 200 messages is still
+        # 1 chatter, so bots and floods cannot fake a spike.
+        self._chatters = deque()
+        self._last_spike_at = float("-inf")
+        self._last_spike = None  # last fired spike dict (for stats)
 
     # -- ingestion ------------------------------------------------------
-    def record_message(self, content, timestamp=None):
-        """Record one chat message. *timestamp* is time.monotonic() (tests)."""
+    def record_message(self, content, timestamp=None, sender=None):
+        """Record one chat message. *timestamp* is time.monotonic() (tests).
+
+        *sender* is the chatter's username (None when unknown): it is
+        only used for the distinct-chatter spike, never for the
+        velocity/emote/keyword stats, so callers that do not know the
+        sender keep the old behaviour exactly.
+        """
         now = time.monotonic() if timestamp is None else timestamp
         upper = (content or "").upper()
         emote_names = extract_emote_names(content)
@@ -176,6 +301,12 @@ class ChatHypeTracker:
             self._messages.append((now, had_emote, keyword_hits))
             self.total_messages += 1
             self._prune_locked(now)
+            if sender and not is_bot_message(sender, content):
+                self._chatters.append((now, str(sender).lower()))
+                cutoff = now - (SPIKE_WINDOW_SECONDS
+                                + SPIKE_HISTORY_SECONDS)
+                while self._chatters and self._chatters[0][0] < cutoff:
+                    self._chatters.popleft()
             # Slow baseline update, but never let a spike drag the baseline
             # up with it (otherwise every spike would normalise itself away).
             rate = len(self._messages) / float(self.window_seconds)
@@ -189,6 +320,91 @@ class ChatHypeTracker:
         cutoff = now - self.window_seconds
         while self._messages and self._messages[0][0] < cutoff:
             self._messages.popleft()
+
+    # -- distinct-chatter spikes ----------------------------------------
+    def _chatter_bins(self, now):
+        """Distinct-chatter counts per 10 s bin: (current, [history]).
+
+        History bins cover the previous 5 minutes, newest first, and
+        only bins after the first recorded message are returned (a
+        chat that just started has no baseline yet).
+        """
+        window = SPIKE_WINDOW_SECONDS
+        first_ts = self._chatters[0][0] if self._chatters else None
+        bins = [set() for _ in range(1 + SPIKE_HISTORY_SECONDS // window)]
+        for ts, sender in self._chatters:
+            age = now - ts
+            if age < 0 or age >= window * len(bins):
+                continue
+            bins[int(age // window)].add(sender)
+        current = len(bins[0])
+        history = []
+        for i in range(1, len(bins)):
+            bin_start = now - window * (i + 1)
+            if first_ts is not None and bin_start < first_ts:
+                break
+            history.append(len(bins[i]))
+        return current, history
+
+    def distinct_chatters(self, window_seconds=SPIKE_WINDOW_SECONDS,
+                          now=None):
+        """Distinct human chatters in the last *window_seconds*."""
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            return len({sender for ts, sender in self._chatters
+                        if now - window_seconds < ts <= now})
+
+    def check_chat_spike(self, now=None):
+        """Distinct-chatter spike check (people, not messages).
+
+        Fires when the distinct chatters in the last 10 s are >= 3x the
+        median of the previous 5 minutes' 10 s bins AND >= 15 people,
+        with a 60 s cooldown. Needs 2 minutes of history first.
+        For huge chats (median >= 20 chatters per bin) the global
+        baseline is always high, so a bin 1.25x busier than its own
+        5-minute neighbourhood (beyond Poisson noise) fires instead.
+        Returns the spike dict when one fires, else None. The cooldown
+        means repeated calls during one spike return None after the
+        first fire.
+        """
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            if now - self._last_spike_at <= SPIKE_COOLDOWN_SECONDS:
+                return None
+            if not self._chatters:
+                return None
+            current, history = self._chatter_bins(now)
+            if len(history) < SPIKE_MIN_HISTORY_BINS:
+                return None
+            baseline = statistics.median(history)
+            fired = None
+            if baseline >= SPIKE_HUGE_CHAT_MEDIAN:
+                # Local-median fallback for huge chats.
+                local = statistics.median(history)
+                noise = 3 * (local ** 0.5)
+                if (current >= SPIKE_LOCAL_RATIO * local
+                        and current >= local + noise):
+                    fired = {"distinct_chatters": current,
+                             "baseline_median": local,
+                             "ratio": round(current / max(local, 1), 2),
+                             "local_fallback": True}
+            elif (current >= SPIKE_MIN_CHATTERS
+                  and current >= SPIKE_RATIO * max(baseline, 1)):
+                fired = {"distinct_chatters": current,
+                         "baseline_median": baseline,
+                         "ratio": round(current / max(baseline, 1), 2),
+                         "local_fallback": False}
+            if fired is not None:
+                self._last_spike_at = now
+                self._last_spike = dict(fired, fired_at=now)
+            return fired
+
+    @property
+    def spike_active(self):
+        """True when a distinct-chatter spike fired within the cooldown."""
+        return (self._last_spike is not None
+                and time.monotonic() - self._last_spike_at
+                <= SPIKE_COOLDOWN_SECONDS)
 
     # -- scoring --------------------------------------------------------
     def get_stats(self):
@@ -210,6 +426,9 @@ class ChatHypeTracker:
             "emote_share": round(emote_count / count, 2) if count else 0.0,
             "keyword_hits": keyword_total,
             "total_messages": self.total_messages,
+            "distinct_chatters": self.distinct_chatters(now=now),
+            "spike_active": self.spike_active,
+            "last_spike": self._last_spike,
         }
 
     def get_hype_score(self):
@@ -221,7 +440,16 @@ class ChatHypeTracker:
         * Emote storm (up to 25): share of window messages carrying a
           tracked emote; 50%+ emote share scores the full 25.
         * Keyword bursts (up to 15): +3 per keyword hit in the window.
+        * Distinct-chatter spike (+20): a live spike -- many DIFFERENT
+          people chatting at once -- adds a flat bonus on top (the
+          total still caps at 100). Bots and one-person floods cannot
+          earn this: it counts people, not messages.
         """
+        # Evaluating the score also evaluates the spike, so the watcher
+        # (which only calls get_hype_score) sees spikes without any
+        # extra wiring. The 60 s cooldown keeps this cheap and
+        # idempotent once a spike has fired.
+        self.check_chat_spike()
         stats = self.get_stats()
         count = stats["window_messages"]
         if count == 0:
@@ -232,7 +460,8 @@ class ChatHypeTracker:
         velocity = min(60.0, max(0.0, (ratio - 1.0) / (multiplier - 1.0)) * 60.0)
         emote = min(25.0, stats["emote_share"] * 50.0)
         keywords = min(15.0, stats["keyword_hits"] * 3.0)
-        return round(min(100.0, velocity + emote + keywords), 1)
+        spike = SPIKE_SCORE_BONUS if stats["spike_active"] else 0.0
+        return round(min(100.0, velocity + emote + keywords + spike), 1)
 
 
 class KickChatClient:
@@ -248,13 +477,19 @@ class KickChatClient:
     def __init__(self, on_hype=None, on_message=None, emotes=None,
                  keywords=None, window_seconds=None, pusher_app_key=None,
                  hype_threshold=None, callback_cooldown=None,
-                 sleep_fn=None):
+                 sleep_fn=None, channel_id=None):
         self.on_hype = on_hype
         self.on_message = on_message
         self._emotes = emotes
         self._keywords = keywords
         self._window_seconds = window_seconds
         self._pusher_app_key = pusher_app_key
+        # Kick channel id (NOT chatroom id): when known, the Pusher app
+        # key + cluster are negotiated fresh from Kick on every
+        # (re)connect instead of trusting the hard-coded key. The app
+        # key is global to Kick, so any one channel id will do -- the
+        # watcher sets this from the streamer cache when it can.
+        self._channel_id = channel_id
         self.hype_threshold = (
             _env_float("CHAT_HYPE_THRESHOLD", 70.0)
             if hype_threshold is None else float(hype_threshold)
@@ -287,6 +522,15 @@ class KickChatClient:
     def subscribed_chatrooms(self):
         with self._lock:
             return sorted(self._subscribed)
+
+    def set_channel_id(self, channel_id):
+        """Set the Kick channel id used for Pusher key negotiation.
+
+        Takes effect on the next (re)connect -- the current connection
+        keeps its key. Safe to call repeatedly with the same id.
+        """
+        if channel_id is not None:
+            self._channel_id = int(channel_id)
 
     def start(self):
         """Start the background connection thread. Returns False if the
@@ -383,7 +627,8 @@ class KickChatClient:
             connected_at = time.monotonic()
             try:
                 ws = websocket.WebSocketApp(
-                    get_pusher_url(self._pusher_app_key),
+                    get_pusher_url(self._pusher_app_key,
+                                   channel_id=self._channel_id),
                     on_open=self._on_open,
                     on_message=self._on_message,
                     on_error=self._on_error,
@@ -473,7 +718,8 @@ class KickChatClient:
             return None
 
         content = data.get("content", "") or ""
-        tracker.record_message(content)
+        sender = (data.get("sender") or {}).get("username")
+        tracker.record_message(content, sender=sender)
 
         if self.on_message is not None:
             try:
@@ -499,11 +745,15 @@ class KickChatClient:
         return data
 
 
-def create_chat_client_from_env(on_hype=None, on_message=None):
+def create_chat_client_from_env(on_hype=None, on_message=None,
+                                channel_id=None):
     """Build a KickChatClient from env flags, or None when disabled.
 
     Returns None (with a log line) when CHAT_HYPE_ENABLED is not true or
     when websocket-client is missing. The caller must still call .start().
+    *channel_id* is the Kick channel id used to negotiate the Pusher
+    app key on every connect (see get_pusher_url); it can also be set
+    later with ``client.set_channel_id(...)``.
     """
     if not _env_bool("CHAT_HYPE_ENABLED", False):
         return None
@@ -514,4 +764,5 @@ def create_chat_client_from_env(on_hype=None, on_message=None):
             "chat hype disabled. Install it with: pip install websocket-client",
         )
         return None
-    return KickChatClient(on_hype=on_hype, on_message=on_message)
+    return KickChatClient(on_hype=on_hype, on_message=on_message,
+                          channel_id=channel_id)

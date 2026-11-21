@@ -50,6 +50,18 @@ def main():
     print("  📱 TikTok Studio: Auto 9:16 Vertical Crop, Subtitles & Hooks")
     print("=" * 65)
 
+    # Lite mode (gta6-clipper feature 17): auto-detects a weak PC
+    # (under 12 GB RAM) and adapts the engine; the disk guard stops
+    # the run early with a clear message instead of failing later.
+    try:
+        import lite_mode
+        lite_note = lite_mode.note()
+        if lite_note:
+            print(f"  💡 {lite_note}")
+        lite_mode.check_disk()
+    except Exception as e:
+        print(f"  ⚠️  {e}")
+
     local_url = f"http://localhost:{args.port}"
     print(f"\n  Dashboard: {local_url}")
     if args.host == "0.0.0.0":

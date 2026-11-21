@@ -7,6 +7,7 @@ __pycache__/
 buffer/
 clips/
 edited/
+vod/
 subtitles/
 chrome_user_data/
 static/mov_inspection/
@@ -44,3 +45,9 @@ client_secrets.json
 checkpoints/
 face_references/
 overlays/
+
+# ML model files — auto-downloaded into models/ on first use
+# (e.g. MediaPipe BlazeFace .tflite, pose landmarker .task). Never commit:
+# they are binaries the snapshot push cannot carry, and they re-download.
+*.tflite
+*.task

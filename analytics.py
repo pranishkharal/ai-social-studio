@@ -10,6 +10,10 @@ instead of vibes.
 Data sources:
     - clip_performance rows written by :func:`record_performance`
       (manual entry from the dashboard, or fed from the earnings tracker).
+    - YouTube view counts auto-filled by channel_learn
+      (see :func:`refresh_youtube_performance`): the channel's public
+      Shorts views, matched to clips this app made. YouTube only —
+      TikTok has no public view-count feed, so TikTok stays manual.
     - The clips table for ai_score / category / streamer.
 
 Outputs:
@@ -159,14 +163,45 @@ def _recommend_threshold(by_bucket: dict) -> dict:
     }
 
 
+def refresh_youtube_performance(channel_url: str = None, limit: int = 60,
+                                refresh: bool = False) -> dict:
+    """Auto-fill YouTube view counts from the channel's own Shorts.
+
+    Delegates to channel_learn.sync_channel_performance: fetches the
+    channel's Shorts + public view counts with yt-dlp (no API key,
+    cached a day), matches them to clips this app made, records the
+    view counts, and saves the learned rules. YouTube only — TikTok
+    has no public view-count feed. Never raises; returns a status
+    dict (see channel_learn.sync_channel_performance).
+    """
+    try:
+        from channel_learn import sync_channel_performance
+        return sync_channel_performance(channel_url=channel_url,
+                                        limit=limit, refresh=refresh)
+    except Exception as e:
+        return {"status": "error", "reason": str(e)}
+
+
 def analytics_summary() -> dict:
     """Average views by AI-score bucket, category and streamer, plus a
-    threshold recommendation. Returns empty breakdowns when no data exists."""
+    threshold recommendation. Returns empty breakdowns when no data exists.
+
+    Also exposes the learned rules from the channel's own Shorts
+    (channel_learn) when a sync has run — [] when it never has, so a
+    missing rules file never breaks the summary.
+    """
     rows = _latest_performance_rows()
     by_bucket = _avg_views(rows, lambda r: _bucket_for(r.get("ai_score") or 0))
     by_category = _avg_views(rows, lambda r: r.get("category") or "Unknown")
     by_streamer = _avg_views(rows, lambda r: r.get("streamer") or "Unknown")
     total_views = sum(r["views"] or 0 for r in rows)
+    try:
+        from channel_learn import load_learned_rules
+        saved = load_learned_rules()
+        learned_rules = saved.get("rules", []) if saved else []
+        learned_updated_at = saved.get("updated_at") if saved else None
+    except Exception:
+        learned_rules, learned_updated_at = [], None
     return {
         "tracked_clips": len({r["clip_id"] for r in rows}),
         "tracked_posts": len(rows),
@@ -176,6 +211,8 @@ def analytics_summary() -> dict:
         "by_category": by_category,
         "by_streamer": by_streamer,
         "threshold_recommendation": _recommend_threshold(by_bucket),
+        "learned_rules": learned_rules,
+        "learned_rules_updated_at": learned_updated_at,
     }
 
 
