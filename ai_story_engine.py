@@ -143,14 +143,21 @@ def get_whisper_model():
     _whisper_model_key = (cfg["model"], device, cfg["compute_type"])
     return model
 
-# Gemini client
-gemini_client = None
-if GEMINI_API_KEY:
+# Gemini clients pool for rotation and failover
+gemini_keys = [k.strip() for k in re.split(r"[,;\n\r]+", GEMINI_API_KEY) if k.strip()]
+gemini_clients = []
+if gemini_keys:
     try:
         from google import genai
-        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        for k in gemini_keys:
+            try:
+                gemini_clients.append(genai.Client(api_key=k))
+            except Exception as e:
+                log_event("WARNING", "AIStoryEngine", f"Gemini client init error for key: {e}")
     except Exception as e:
-        log_event("WARNING", "AIStoryEngine", f"Gemini init error: {e}")
+        log_event("WARNING", "AIStoryEngine", f"Google genai import error: {e}")
+
+gemini_client = gemini_clients[0] if gemini_clients else None
 
 # Strict Shadowban Prevention: Prestige-style Leet-Speak Sanitizer
 SHADOWBAN_REPLACEMENTS = {
@@ -270,19 +277,26 @@ class AIStoryEngine:
             streamer, category, duration, hype_score, sanitized_transcript)
 
         def gemini_fn(_prompt):
-            if gemini_client is None:
+            if not gemini_clients:
                 raise RuntimeError("Gemini client not configured")
-            response = gemini_client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=_prompt,
-            )
-            raw_text = response.text.strip()
-            if raw_text.startswith("```"):
-                raw_text = raw_text.split("```")[1]
-                if raw_text.startswith("json"):
-                    raw_text = raw_text[4:]
-            data = json.loads(raw_text.strip())
-            return self._sanitize_metadata(data)
+            last_err = None
+            for client in gemini_clients:
+                try:
+                    response = client.models.generate_content(
+                        model=GEMINI_MODEL,
+                        contents=_prompt,
+                    )
+                    raw_text = response.text.strip()
+                    if raw_text.startswith("```"):
+                        raw_text = raw_text.split("```")[1]
+                        if raw_text.startswith("json"):
+                            raw_text = raw_text[4:]
+                    data = json.loads(raw_text.strip())
+                    return self._sanitize_metadata(data)
+                except Exception as e:
+                    last_err = e
+                    log_event("WARNING", "AIStoryEngine", f"Gemini request failed, trying next key: {e}")
+            raise last_err
 
         def heuristic_fn(_prompt):
             return self._heuristic_metadata(streamer, sanitized_transcript, hype_score, moment_type)

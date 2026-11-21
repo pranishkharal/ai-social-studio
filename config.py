@@ -23,7 +23,7 @@ CHAT_VELOCITY_SPIKE_MULTIPLIER = 3.0 # Spike multiplier in chat msgs/sec
 
 # AI Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.5-flash"  # Fast, highly accurate multimodal & storytelling model
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
 # Video Editing Configuration
 VIDEO_LAYOUT = "speaker_tracking"  # Options: 'speaker_tracking' (dynamic speaker auto-framing), 'split', 'blurred_backdrop', 'center_crop'
