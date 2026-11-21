@@ -19,6 +19,7 @@ the existing 1080x1920 canvas (config.VIDEO_WIDTH / VIDEO_HEIGHT).
 """
 
 import os
+import re
 from pathlib import Path
 
 PLAY_RES_X = 1080
@@ -29,6 +30,18 @@ MAX_GAP_WITHIN_LINE = 0.8    # seconds; a longer pause starts a new line
 MIN_EVENT_DURATION = 0.35    # seconds; matches generate_ass_subtitles()
 END_PADDING = 0.08           # seconds of hold after the last word
 MIN_KARAOKE_CS = 10          # minimum karaoke duration per word (centiseconds)
+
+# Profanity masking (gta6-clipper feature 21): swear words are shown
+# masked on screen (f***) while the audio is untouched. Only matters
+# when subtitles are enabled — they are OFF by default for Kick clips.
+# Env KARAOKE_MASK_PROFANITY=0 disables it; generate_karaoke_ass() also
+# takes a mask_profanity= argument.
+PROFANITY_RE = re.compile(
+    r"^(fuck|shit|bitch|dick|pussy|cock|nigga|nigger|faggot|fag|cunt)"
+    r"(s|in|ing|er|ers|ed|y|ass)?$",
+    re.I,
+)
+ENV_MASK_PROFANITY = "KARAOKE_MASK_PROFANITY"
 
 # ASS colours are &HBBGGRR (blue/green/red, alpha in the high byte).
 # With {\k} tags libass sweeps each word from SecondaryColour (unsung) to
@@ -67,6 +80,30 @@ STYLES = {
         "bounce": False,
     },
 }
+
+
+def mask_profanity_enabled():
+    """True unless KARAOKE_MASK_PROFANITY=0 (default: masking on)."""
+    return os.environ.get(ENV_MASK_PROFANITY, "1").strip().lower() not in (
+        "0", "false", "no", "off")
+
+
+def mask_profanity_word(word):
+    """
+    Mask one word for display: a swear word becomes its first letter +
+    asterisks ("fuck" -> "f***"), keeping any trailing punctuation
+    ("fuck!" -> "f***!"). Anything else passes through unchanged. The
+    audio is never touched — this only affects what is drawn on screen.
+    """
+    word = str(word)
+    stripped = re.sub(r"[,.;:\"'!?]+$|^-+", "", word)
+    if not stripped or not PROFANITY_RE.match(stripped):
+        return word
+    masked = stripped[0] + "*" * (len(stripped) - 1)
+    # Put back any punctuation that was stripped from either end.
+    prefix = word[:len(word) - len(word.lstrip("-"))]
+    suffix = word[len(word.rstrip(",.;:\"'!?")):]
+    return prefix + masked + suffix
 
 
 def _fmt_time(t: float) -> str:
@@ -146,7 +183,8 @@ def _bounce_tags(line, line_start, style):
     return "{" + "".join(tags) + "}"
 
 
-def generate_karaoke_ass(words: list, output_ass_path: str, style: str = "hormozi") -> str:
+def generate_karaoke_ass(words: list, output_ass_path: str, style: str = "hormozi",
+                         mask_profanity: bool = None) -> str:
     """
     Write animated word-by-word karaoke subtitles to an .ass file.
 
@@ -157,12 +195,17 @@ def generate_karaoke_ass(words: list, output_ass_path: str, style: str = "hormoz
         output_ass_path: destination .ass file path.
         style: "hormozi" (bold Impact, yellow highlight, bounce pop) or
             "minimal" (white Arial, no bounce).
+        mask_profanity: swear words shown masked (f***) on screen, audio
+            untouched. None means the KARAOKE_MASK_PROFANITY env var
+            (default on).
 
     Returns:
         The output path (as given). Raises ValueError for an unknown style.
     """
     if style not in STYLES:
         raise ValueError(f"Unknown karaoke style {style!r}; expected one of {sorted(STYLES)}")
+    if mask_profanity is None:
+        mask_profanity = mask_profanity_enabled()
     s = STYLES[style]
 
     header = (
@@ -201,7 +244,10 @@ def generate_karaoke_ass(words: list, output_ass_path: str, style: str = "hormoz
             else:
                 dur = w["end"] - w["start"]
             cs = max(MIN_KARAOKE_CS, int(round(dur * 100)))
-            text = w["word"].upper() if s["uppercase"] else w["word"]
+            text = w["word"]
+            if mask_profanity:
+                text = mask_profanity_word(text)
+            text = text.upper() if s["uppercase"] else text
             parts.append(f"{{\\k{cs}}}{_escape_ass_text(text)}")
 
         bounce = _bounce_tags(line, line_start, s)

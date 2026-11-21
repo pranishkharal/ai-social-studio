@@ -22,9 +22,26 @@ requests>=2.31
 # Image + video processing (clip_editor.py, kick_program.py, speaker_tracker.py)
 Pillow>=10.0
 numpy>=1.26
-# OpenCV 5.x removed CascadeClassifier entirely, which speaker_tracker.py
-# and thumbnail.py rely on for Haar face detection — cap below 5.
+# OpenCV 5.x removed CascadeClassifier entirely — or so it was believed.
+# Verified 2026-11-21 in this VM: mediapipe 1.2.3 pulls
+# opencv-contrib-python 5.1.0.95, and CascadeClassifier still loads the
+# repo's haarcascade file and runs detectMultiScale fine on 5.1.0.
+# The <5 pin is kept anyway for installs WITHOUT mediapipe: it is the
+# combination the test suite and the Haar path were validated against,
+# and opencv 5.x behaviour outside CascadeClassifier is untested here.
+# NOTE: mediapipe (below) depends on opencv-contrib-python (unpinned,
+# currently 5.x), which overwrites the cv2 files from this package —
+# with mediapipe installed, cv2 reports 5.x. That is expected and the
+# Haar path was verified working on 5.1.0.95.
 opencv-python-headless>=4.9,<5
+
+# Face tracking (speaker_tracker.py): the primary MediaPipe backend.
+# Tasks API (mediapipe 1.x has no mp.solutions); the BlazeFace model
+# (~230 KB) auto-downloads into models/ on first use. On Linux the
+# Tasks API also needs the system EGL/GLES libraries (libegl1,
+# libgles2) — without them MediaPipe init fails and the tracker falls
+# back to Haar (see the README's face-tracking section).
+mediapipe>=1.0
 
 # AI: transcription + story generation (ai_story_engine.py)
 faster-whisper>=1.0
@@ -52,9 +69,6 @@ google-auth-oauthlib>=1.2
 #
 # pywebview>=5.0   # desktop_app.py: native Windows desktop window (guarded
 #                  # import; the app falls back to the browser without it)
-# mediapipe>=0.10  # speaker_tracker.py: primary face-tracking backend
-#                  # (FACE_TRACKER_BACKEND=mediapipe/auto). Without it the
-#                  # tracker falls back to YOLO, then Haar cascades.
 # ultralytics>=8.0 # speaker_tracker.py: YOLO face-tracking backend
 #                  # (FACE_TRACKER_BACKEND=yolo/auto). Without it the
 #                  # tracker falls back to Haar cascades.
@@ -62,6 +76,21 @@ google-auth-oauthlib>=1.2
 #                        # FACE_REFERENCE_DIR photos. Without it, detection
 #                        # uses transcript mentions + face counts only.
 # curl-cffi>=0.7   # scratch_parse_tiktok.py (one-off analysis script)
+# yt-dlp>=2024.0   # vod_clipper.py: optional, only needed for downloading
+#                  # VOD URLs (Kick/Twitch/YouTube). Local-file clipping
+#                  # works without it; without it, downloading a URL
+#                  # fails with a plain-English install hint instead.
+# streamlink>=8.0  # streamlink_recorder.py: optional fallback live
+#                  # recorder (Kick/Twitch/YouTube). Without it, the
+#                  # recorder reports a plain-English install hint.
+# rapidocr-onnxruntime>=1.4  # game_ocr.py: optional, only needed for
+#                  # reading game banners (WASTED/BUSTED/MISSION
+#                  # PASSED). Without it, OCR is skipped and only
+#                  # hard-cut events are reported. NOTE: a plain pip
+#                  # install pulls a 79 MB opencv wheel even when
+#                  # opencv-contrib-python already provides cv2 — use
+#                  # `pip install --no-deps rapidocr-onnxruntime` plus
+#                  # shapely/pyclipper/six if that download stalls.
 #
 # NOTE: python-multipart is intentionally NOT listed: nothing in the codebase
 # uses FastAPI Form/File uploads (the login form in auth.py is parsed with

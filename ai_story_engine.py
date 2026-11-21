@@ -6,6 +6,12 @@ from config import BASE_DIR, GEMINI_API_KEY, GEMINI_MODEL, SUBTITLES_DIR
 from database import log_event
 from retry_utils import retry
 from llm_providers import generate_metadata_with_fallback
+from story_headlines import (
+    build_story_headline,
+    compose_hashtags,
+    compose_post_caption,
+    pick_quote_line,
+)
 
 # Local speech-to-text (faster-whisper), loaded LAZILY on first use.
 # Importing this module must never download or load a model -- the model
@@ -49,6 +55,49 @@ def _whisper_config():
     compute_type = os.getenv("WHISPER_COMPUTE_TYPE", "int8").strip() or "int8"
     return {"model": model, "device": device,
             "beam_size": beam_size, "compute_type": compute_type}
+
+
+# Whisper vocabulary prompt (gta6-clipper feature 9): without a prompt,
+# Whisper hears what it expects — "Chad" for "chat", game and streamer
+# names mangled — and those mistranscriptions leak into headlines (the
+# TikTok build caught "Ethan wants to be" in a demo headline). Passing
+# the game's and streamer's names plus chat slang as initial_prompt
+# steers the tiny model to the right words, and also makes it punctuate,
+# which the sentence snapping needs. Set WHISPER_VOCAB_PROMPT to replace
+# the built prompt entirely.
+WHISPER_VOCAB_GAMES = [
+    "GTA 6", "Grand Theft Auto VI", "GTA 5", "San Andreas", "Vice City",
+    "Leonida", "Lucia", "Jason", "Rockstar",
+]
+WHISPER_VOCAB_SLANG = ["Chat", "KEKW", "LUL", "W", "bro"]
+
+
+def build_vocab_prompt(streamer=None, game=None):
+    """Build the Whisper initial_prompt for one clip.
+
+    The game's name goes first (when known), then the built-in game
+    vocabulary, then the streamer's name, then chat slang — two short
+    sentences, deduplicated case-insensitively. An explicit
+    WHISPER_VOCAB_PROMPT env var replaces the whole prompt.
+    """
+    override = os.getenv("WHISPER_VOCAB_PROMPT", "").strip()
+    if override:
+        return override
+    names = []
+    seen = set()
+
+    def _add(name):
+        name = (name or "").strip()
+        if name and name.lower() not in seen:
+            seen.add(name.lower())
+            names.append(name)
+
+    _add(game)
+    for name in WHISPER_VOCAB_GAMES:
+        _add(name)
+    _add(streamer)
+    slang = ", ".join(WHISPER_VOCAB_SLANG)
+    return f"{', '.join(names)}. {slang}."
 
 
 def get_whisper_model():
@@ -139,28 +188,41 @@ class AIStoryEngine:
             sanitized = re.sub(pat, rep, sanitized, flags=re.IGNORECASE)
         return sanitized
 
-    def transcribe_clip(self, video_path: str) -> dict:
-        """Transcribes dialogue and extracts word-level timestamps using faster-whisper."""
+    def transcribe_clip(self, video_path: str, streamer: str = None,
+                        game: str = None) -> dict:
+        """Transcribes dialogue and extracts word-level timestamps using faster-whisper.
+
+        streamer / game feed the vocabulary prompt (build_vocab_prompt):
+        the names Whisper should expect to hear. Both are optional —
+        without them the built-in game + slang vocabulary is used.
+        """
         model = get_whisper_model()
         if model is None or not os.path.exists(video_path):
             return {"full_text": "", "words": []}
 
         beam_size = _whisper_config()["beam_size"]
         try:
-            return self._transcribe_attempt(model, video_path, beam_size)
+            return self._transcribe_attempt(model, video_path, beam_size,
+                                            streamer=streamer, game=game)
         except Exception as e:
             log_event("ERROR", "AIStoryEngine", f"Whisper transcription failed: {e}")
             return {"full_text": "", "words": []}
 
     @retry(max_attempts=2)
-    def _transcribe_attempt(self, model, video_path, beam_size):
+    def _transcribe_attempt(self, model, video_path, beam_size,
+                            streamer=None, game=None):
         """One Whisper transcription attempt.
 
         Retried once (via @retry) on transient failure — e.g. a flaky
         model load or a locked file — before transcribe_clip falls back
-        to an empty transcript.
+        to an empty transcript. The vocabulary prompt (game + streamer
+        names + chat slang) is passed as initial_prompt, and the VAD
+        filter skips non-speech so silence is not hallucinated as words.
         """
-        segments, info = model.transcribe(video_path, beam_size=beam_size, word_timestamps=True)
+        segments, info = model.transcribe(
+            video_path, beam_size=beam_size, word_timestamps=True,
+            vad_filter=True,
+            initial_prompt=build_vocab_prompt(streamer, game))
         words = []
         full_text_pieces = []
 
@@ -187,7 +249,7 @@ class AIStoryEngine:
             "language": info.language
         }
 
-    def analyze_story_and_generate_metadata(self, streamer: str, transcript: str, duration: float, category: str = "Gaming", hype_score: float = 75.0) -> dict:
+    def analyze_story_and_generate_metadata(self, streamer: str, transcript: str, duration: float, category: str = "Gaming", hype_score: float = 75.0, moment_type: str = None) -> dict:
         """
         AI Social Studio v1.0 Story Intelligence:
         - Evaluates event into one of the 8 PRD Highlight Categories
@@ -202,7 +264,7 @@ class AIStoryEngine:
 
         if not sanitized_transcript.strip():
             # No dialogue to analyze — heuristic fallback only.
-            return self._heuristic_metadata(streamer, sanitized_transcript, hype_score)
+            return self._heuristic_metadata(streamer, sanitized_transcript, hype_score, moment_type)
 
         prompt = self._build_analysis_prompt(
             streamer, category, duration, hype_score, sanitized_transcript)
@@ -223,7 +285,7 @@ class AIStoryEngine:
             return self._sanitize_metadata(data)
 
         def heuristic_fn(_prompt):
-            return self._heuristic_metadata(streamer, sanitized_transcript, hype_score)
+            return self._heuristic_metadata(streamer, sanitized_transcript, hype_score, moment_type)
 
         return generate_metadata_with_fallback(prompt, gemini_fn, heuristic_fn)
 
@@ -256,7 +318,16 @@ Strict AI Social Studio PRD Requirements:
    - Example: "N3on was SHOCKED after Ryan Garcia just ANNOUNCED that he's F1GHTING Boxing Champ Floyd Mayweather 😳🥊"
    - Example: "Adin Ross was COMPLETELY SPEECHLESS after LOSING $50,000 on a single hand of Blackjack 💀💸"
    - Must be 12 to 22 words, engaging narrative hook that explains what happened.
-6. MULTI-PLATFORM METADATA:
+6. STORY HEADLINE RULE (most important): viral_title and hook_banner must
+   name the SPECIFIC moment from the transcript -- a verb + object taken
+   from what was actually said, plus a name or quoted phrase when one
+   appears (e.g. "Adinross finds his calling after Chaz calls him out",
+   "Zavala breaks the guitar Amanda got him"). Do NOT write a generic
+   "SPEECHLESS" / "SHOCKED" line unless the transcript genuinely shows
+   shock -- a headline that could describe any clip is a bad headline.
+7. QUOTE LINE: pick the single punchiest spoken line from the transcript
+   (exact words, 4-15 words) and return it as "quote_line".
+8. MULTI-PLATFORM METADATA:
    - youtube_title: Catchy title under 65 chars ending with #Shorts
    - youtube_description: 2 sentence description with search tags
    - instagram_caption: Aesthetic viral caption with emojis
@@ -267,9 +338,10 @@ Return ONLY a valid JSON object matching this schema:
   "ai_score": 88,
   "selection_reason": "High emotional intensity combined with sudden streamer shock reaction.",
   "story_summary": "1 sentence description of what occurred",
-  "viral_title": "{streamer.title()} [TRIGGER WORD IN CAPS]... 💀",
-  "hook_banner": "{streamer.title()} was SHOCKED after [shocking context] 😳🥊",
-  "screen_caption": "{streamer.title()} was SHOCKED after [shocking context] 😳🥊",
+  "viral_title": "{streamer.title()} finds his calling after Chaz calls him out",
+  "hook_banner": "{streamer.title()} finds his calling after Chaz calls him out 😳",
+  "screen_caption": "{streamer.title()} finds his calling after Chaz calls him out 😳",
+  "quote_line": "Best spoken line, exact words from the transcript, 4-15 words",
   "tiktok_caption": "{streamer.title()} finally REVEALS what happened on stream…😳👀#{streamer.lower()} #clips #fyp",
   "youtube_title": "{streamer.title()} WAS LEFT SPEECHLESS! #Shorts",
   "youtube_description": "Watch what happened live on Kick. Subscribe for daily stream moments! #{streamer.lower()} #kickclips #shorts",
@@ -291,11 +363,14 @@ Return ONLY a valid JSON object matching this schema:
         data["screen_caption"] = data["hook_banner"]
         data["tiktok_caption"] = self.prestige_sanitize(data.get("tiktok_caption", ""))
         data["blue_comment"] = self.prestige_sanitize(data.get("blue_comment", ""))
+        quote = self.prestige_sanitize(str(data.get("quote_line") or ""))
+        # A quote line longer than 120 chars is not a punchy one-liner.
+        data["quote_line"] = quote if len(quote) <= 120 else ""
         if data.get("category") not in PRD_CATEGORIES:
             data["category"] = "Streamer Reactions"
         return data
 
-    def _heuristic_metadata(self, streamer, sanitized_transcript, hype_score):
+    def _heuristic_metadata(self, streamer, sanitized_transcript, hype_score, moment_type=None):
         """Prestige Live Data Heuristic Fallback — keyword-driven metadata.
 
         Always available locally; used when no LLM provider answers (or
@@ -304,61 +379,60 @@ Return ONLY a valid JSON object matching this schema:
         lower_t = sanitized_transcript.lower()
         if any(w in lower_t for w in ["cry", "sad", "break up", "heartbroken", "anniversary"]):
             cat = "Angry or Emotional Reactions"
-            caption = f"{streamer.title()} was HEARTBROKEN after realizing what happened live on stream…😭💔#{streamer.lower()} #clips #fyp"
-            banner = f"{streamer.title()} was HEARTBROKEN after realizing what happened live on stream 😭💔"
-            title = f"{streamer.title()} was HEARTBROKEN After What Happened 😭💔"
+            emoji = "😭💔"
             score = 88
             reason = "High emotional intensity and dramatic streamer breakdown."
         elif any(w in lower_t for w in ["win", "won", "clutch", "victory", "champion", "jackpot"]):
             cat = "Big Wins"
-            caption = f"{streamer.title()} just HIT THE BIGGEST WIN live on stream…🤑🏆#{streamer.lower()} #clips #fyp"
-            banner = f"{streamer.title()} was SHOCKED after hitting the BIGGEST WIN live on stream 🤑🏆"
-            title = f"{streamer.title()} Hits INSANE VICTORY Live 🏆"
+            emoji = "🤑🏆"
             score = 92
             reason = "Massive victory moment with intense celebratory energy."
         elif any(w in lower_t for w in ["game", "kill", "headshot", "shot", "ace", "clutch"]):
             cat = "Exciting Gameplay"
-            caption = f"{streamer.title()} had the MOST INSANE GAMEPLAY sequence live on stream…🎯🔥#{streamer.lower()} #clips #fyp"
-            banner = f"{streamer.title()} went ABSOLUTELY CRAZY during this unreal gameplay sequence 🎯🔥"
-            title = f"{streamer.title()} with an UNREAL Clutch 🎯🔥"
+            emoji = "🎯🔥"
             score = 85
             reason = "High-velocity competitive gaming sequence."
         elif any(w in lower_t for w in ["fight", "drama", "argue", "hate"]):
             cat = "Streamer Reactions"
-            caption = f"{streamer.title()} finally REVEALS the truth behind the DRAMA after what happened…😳👀#{streamer.lower()} #clips #fyp"
-            banner = f"{streamer.title()} was SHOCKED after this wild DRAMA broke out live on stream 😳👀"
-            title = f"{streamer.title()} finally REVEALS The Truth 😳👀"
+            emoji = "😳👀"
             score = 86
             reason = "Unfiltered dramatic conversation with strong audience engagement potential."
         elif any(w in lower_t for w in ["lol", "lmao", "haha", "joke", "funny"]):
             cat = "Funny Moments"
-            caption = f"{streamer.title()} could NOT stop laughing after this happened live on stream…😂💀#{streamer.lower()} #clips #fyp"
-            banner = f"{streamer.title()} could NOT stop laughing after what just happened live on stream 😂💀"
-            title = f"{streamer.title()} COULD NOT STOP LAUGHING 😂💀"
+            emoji = "😂💀"
             score = 84
             reason = "Spontaneous comedic situation with genuine laughter."
         else:
             cat = "Viral Potential"
-            caption = f"{streamer.title()} was completely SPEECHLESS after this happened live on stream…😳👀#{streamer.lower()} #clips #fyp"
-            banner = f"{streamer.title()} was COMPLETELY SPEECHLESS after what happened live on stream 😳🚨"
-            title = f"{streamer.title()} was COMPLETELY SPEECHLESS 💀"
+            emoji = "😳🚨"
             score = int(min(95, max(65, hype_score + 10)))
             reason = f"Notable live stream reaction detected with peak decibel and hype rating of {hype_score}."
+
+        # Story headline (Feature 1), quote line (Feature 2) and post
+        # caption with hashtags (Feature 4) -- all built from the actual
+        # transcript instead of the old generic SPEECHLESS lines.
+        headline = build_story_headline(
+            streamer, sanitized_transcript, category=cat,
+            moment_type=moment_type)
+        quote = pick_quote_line(sanitized_transcript)
+        banner = f"{headline} {emoji}".strip()
+        caption = compose_post_caption(headline, streamer)
 
         return {
             "category": cat,
             "ai_score": score,
             "selection_reason": reason,
             "story_summary": f"Dramatic unfiltered moment from {streamer}'s stream.",
-            "viral_title": title,
+            "viral_title": headline,
             "hook_banner": banner,
             "screen_caption": banner,
+            "quote_line": quote,
             "tiktok_caption": caption,
             "youtube_title": f"{streamer.title()} Left SPEECHLESS on Stream! #Shorts",
             "youtube_description": f"Watch what happened with {streamer} on Kick! Like and subscribe for more viral stream moments. #{streamer.lower()} #kickclips #shorts",
             "instagram_caption": f"Bro really could not believe this happened live… 💀 #{streamer.lower()} #reels #explore",
             "blue_comment": f"Did {streamer} actually mean this or was it just for the stream? Let's settle this in comments 👇",
-            "hashtags": f"#{streamer.lower()} #clips #fyp",
+            "hashtags": compose_hashtags(streamer),
             "llm_provider": "heuristic",
         }
 

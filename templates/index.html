@@ -166,6 +166,16 @@
                         <span class="text-gray-300">Rate: <b id="pill-rate" class="text-emerald-400 font-mono">$40 / 100K</b></span>
                     </div>
 
+                    <!-- Clip Permission Badge (gta6-clipper feature 13) -->
+                    <div id="clip-rule-badge" class="bg-black/50 border border-gray-800 p-3 rounded-xl text-xs hidden">
+                        <div class="flex items-center justify-between">
+                            <span class="text-gray-400">Clipping permission:</span>
+                            <span id="clip-rule-value" class="font-bold font-mono px-2 py-0.5 rounded border">unknown</span>
+                        </div>
+                        <div id="clip-rule-note" class="text-[11px] text-gray-400 mt-1.5"></div>
+                        <a id="clip-rule-source" href="#" target="_blank" rel="noopener" class="hidden text-[11px] text-[#53fc18] hover:underline mt-1 inline-block">Source ↗</a>
+                    </div>
+
                     <!-- Fast Instant Clip Buttons (15s, 25s, 35s) -->
                     <div class="pt-2">
                         <div class="text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-2">Capture Instant Slice:</div>
@@ -197,6 +207,14 @@
                             <option value="blurred_backdrop">🎬 Blurred Backdrop (Full 16:9 Center - No Faces Cut)</option>
                             <option value="split">📱 Split 9:16 (Facecam Top + Gameplay Bottom)</option>
                             <option value="center_crop">✂️ Center Crop 9:16</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="text-[11px] text-gray-400 block mb-1">Tracking Target <span class="text-gray-500">(speaker tracking only)</span></label>
+                        <select id="tracking-target-select" class="w-full bg-black/60 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#53fc18]">
+                            <option value="face" selected>👤 Face Tracking (follow the face — best for seated facecam)</option>
+                            <option value="body">🧍 Full-Body Tracking (follow the whole body — best for IRL / moving streamers)</option>
                         </select>
                     </div>
 
@@ -244,6 +262,34 @@
                                    class="w-full bg-black/50 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
                             <div class="text-[10px] text-gray-500 mt-1">If blank, AI Whisper + Gemini automatically creates the headline.</div>
                         </div>
+
+                        <!-- TikTok style controls (v1.2.0) -->
+                        <div>
+                            <label class="text-[11px] text-gray-400 block mb-1">Headline Timing</label>
+                            <select id="banner-timing-select" class="w-full bg-black/60 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#53fc18]">
+                                <option value="4s" selected>⏱️ 4 seconds only (then fades out)</option>
+                                <option value="whole_clip">📌 Whole clip (like @zysno / @godsclipper)</option>
+                            </select>
+                        </div>
+
+                        <label class="flex items-center space-x-2 cursor-pointer text-gray-300">
+                            <input type="checkbox" id="toggle-short-clip" class="rounded border-gray-700 text-[#53fc18] focus:ring-0">
+                            <span>⚡ <b>Short clip</b> (tight 12s cut around the loudest moment)</span>
+                        </label>
+                        <label class="flex items-center space-x-2 cursor-pointer text-gray-300">
+                            <input type="checkbox" id="toggle-bgm" class="rounded border-gray-700 text-[#53fc18] focus:ring-0">
+                            <span>🎵 <b>Soft background music</b> (quiet track under the audio)</span>
+                        </label>
+                        <label class="flex items-center space-x-2 cursor-pointer text-gray-300">
+                            <input type="checkbox" id="toggle-quote-line" class="rounded border-gray-700 text-[#53fc18] focus:ring-0">
+                            <span>💬 <b>Quote line</b> (one spoken line under the headline — off by default)</span>
+                        </label>
+
+                        <div>
+                            <label class="text-[11px] text-gray-400 block mb-1">Game (Optional, for hashtags)</label>
+                            <input type="text" id="game-input" placeholder="e.g. GTA 6 (adds #gta6 to the caption)" 
+                                   class="w-full bg-black/50 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
+                        </div>
                     </div>
 
                     <!-- Add Streamer Form -->
@@ -254,6 +300,27 @@
                             + Add
                         </button>
                     </form>
+                </div>
+
+                <!-- Clip a Past Video / VOD (v1.2.0) -->
+                <div class="glass-panel rounded-2xl p-4 space-y-3">
+                    <div class="text-xs font-bold uppercase tracking-wider text-gray-400">📼 Clip a Past Video (VOD)</div>
+                    <p class="text-[11px] text-gray-400">Paste a Kick VOD, Twitch VOD/clip or YouTube link (podcasts included), or a video file path on this computer. The engine finds the loudest moment and clips it.</p>
+                    <input type="text" id="vod-source-input" placeholder="https://www.youtube.com/watch?v=... or C:\Videos\stream.mp4"
+                           class="w-full bg-black/50 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
+                    <div class="flex gap-2">
+                        <input type="text" id="vod-streamer-input" placeholder="Streamer name (optional)"
+                               class="flex-1 bg-black/50 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
+                        <select id="vod-duration-select" class="bg-black/60 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#53fc18]">
+                            <option value="12">12s</option>
+                            <option value="15">15s</option>
+                            <option value="25" selected>25s</option>
+                            <option value="30">30s</option>
+                        </select>
+                    </div>
+                    <button type="button" onclick="clipVod()" class="w-full bg-[#53fc18] hover:bg-[#46d614] text-black font-bold py-2 rounded-xl text-xs transition">
+                        ✂️ Find Best Moment & Clip It
+                    </button>
                 </div>
 
             </div>
@@ -300,6 +367,11 @@
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                         <span>Refresh</span>
                     </button>
+
+                    <button onclick="toggleByDayView()" id="btn-by-day" title="Group clips by day" class="px-3 py-1.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-xs font-semibold text-gray-200 border border-gray-700 transition">
+                        📅 By Day
+                    </button>
+                    <span class="text-[10px] text-gray-500 font-mono hidden sm:inline" title="With a clip open: A approves, X rejects">Keys: A approve · X reject</span>
                 </div>
             </div>
 
@@ -488,6 +560,41 @@
             </form>
         </div>
 
+        <!-- Live Hunt Panel (gta6-clipper feature 14) -->
+        <div class="glass-panel rounded-2xl p-4 space-y-3">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+                <h3 class="text-xs font-bold uppercase tracking-wider text-gray-400">🔴 Live Hunt — Kick · Twitch · YouTube</h3>
+                <div class="flex items-center gap-2">
+                    <input id="hunt-streamers-input" type="text" placeholder="kick:adinross, twitch:xqc, youtube:@ishowspeed" class="w-72 bg-black/60 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
+                    <button onclick="fetchHunt()" class="px-3 py-1.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-xs font-semibold text-gray-200 border border-gray-700 transition">Refresh Hunt</button>
+                </div>
+            </div>
+            <p class="text-[11px] text-gray-500">Who of your streamers is live right now, on any platform — public endpoints, no keys. Start records them with the streamlink recorder; Past shows their last 5 streams to clip from.</p>
+            <div id="hunt-list" class="text-xs text-gray-400">Loading live hunt…</div>
+            <div id="hunt-past" class="text-xs text-gray-400"></div>
+        </div>
+
+        <!-- Week Schedule Planner (gta6-clipper feature 21, review UX) -->
+        <div class="glass-panel rounded-2xl p-4 space-y-3">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+                <h3 class="text-xs font-bold uppercase tracking-wider text-gray-400">📅 Week Schedule — drag clips onto a day</h3>
+                <div class="flex items-center gap-2">
+                    <select id="schedule-platform-select" class="bg-black/60 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#53fc18]">
+                        <option value="tiktok">TikTok</option>
+                        <option value="youtube">YouTube Shorts</option>
+                        <option value="instagram">Instagram Reels</option>
+                    </select>
+                    <input id="schedule-time-input" type="time" value="18:00" class="bg-black/60 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#53fc18]">
+                    <button onclick="previewSchedule()" class="px-3 py-1.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-xs font-semibold text-gray-200 border border-gray-700 transition">👀 Dry-Run Preview</button>
+                    <button onclick="confirmSchedule()" class="px-3 py-1.5 rounded-xl bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-[#53fc18] text-xs font-bold transition">✅ Schedule These</button>
+                    <button onclick="clearSchedule()" class="px-3 py-1.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-xs font-semibold text-gray-400 border border-gray-700 transition">Clear</button>
+                </div>
+            </div>
+            <p class="text-[11px] text-gray-500">Drag a clip card onto a day below. Dry-Run Preview shows exactly what would be sent — and warns about anything that would be skipped — before anything is queued.</p>
+            <div id="week-schedule-grid" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2"></div>
+            <div id="schedule-preview" class="hidden text-xs bg-black/40 border border-gray-800 rounded-xl p-3 max-h-64 overflow-y-auto custom-scroll"></div>
+        </div>
+
         <!-- Activity Logs Bar -->
         <div class="glass-panel rounded-2xl p-4 space-y-2">
             <div class="flex items-center justify-between">
@@ -551,9 +658,28 @@
                         <label class="text-[10px] text-gray-400 block mb-0.5">Caption Headline Text</label>
                         <input id="modal-title-input" type="text" class="w-full bg-black border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[#53fc18]" placeholder="Type headline or edit hook text">
                     </div>
+                    <label class="flex items-center space-x-2 cursor-pointer text-gray-300">
+                        <input type="checkbox" id="toggle-modal-quote-line" class="rounded border-gray-700 text-[#53fc18] focus:ring-0">
+                        <span class="text-[11px]">💬 <b>Quote line</b> (one spoken line under the headline — off by default)</span>
+                    </label>
                     <button type="button" onclick="rerenderFromModal()" id="btn-modal-rerender" class="w-full bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-[#53fc18] font-bold py-1.5 px-3 rounded-lg text-xs flex items-center justify-center space-x-1.5 transition shadow">
                         <span>⚡ Apply & Re-render Video</span>
                     </button>
+                </div>
+
+                <!-- Voice-Over (gta6-clipper feature 7) -->
+                <div class="bg-gray-900 border border-gray-700 p-3 rounded-xl space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label class="text-[11px] font-bold text-gray-300">🎙️ Your Voice-Over</label>
+                        <span class="text-[10px] text-gray-400 font-mono">game audio ducks under you</span>
+                    </div>
+                    <p class="text-[11px] text-gray-400">Record one short line about the moment (phone or mic), pick where it starts — usually right after the payoff — and it is mixed into this clip. The video is copied untouched.</p>
+                    <div class="flex gap-2 items-center flex-wrap">
+                        <input id="voiceover-file-input" type="file" accept=".wav,.mp3,.m4a,.ogg,.flac,audio/*" class="flex-1 min-w-0 bg-black border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-[#53fc18]">
+                        <label class="text-[11px] text-gray-400 whitespace-nowrap">at <input id="voiceover-at-input" type="number" min="0" step="0.5" value="5" class="w-16 bg-black border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#53fc18]"> s</label>
+                        <button type="button" onclick="uploadVoiceover()" id="btn-voiceover" class="bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-[#53fc18] font-bold py-1.5 px-3 rounded-lg text-xs transition">🎙️ Add Voice-Over</button>
+                    </div>
+                    <div id="voiceover-status" class="text-[11px] text-gray-400"></div>
                 </div>
 
                 <!-- Discord Bot Command Submission Generator -->
@@ -753,6 +879,7 @@
             document.getElementById('current-streamer-heading').innerText = streamer.toLowerCase();
             updateLivePlayer(streamer);
             updateRateDisplay();
+            fetchClipRule(streamer);
         }
 
         function updateLivePlayer(streamer) {
@@ -863,6 +990,11 @@
         function renderClips() {
             const grid = document.getElementById('clips-grid');
             grid.innerHTML = '';
+            grid.className = 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6';
+
+            // Shorts-by-day view (review UX): group the same filtered
+            // clips under a heading per day instead of one flat grid.
+            if (byDayView) { renderClipsByDay(); return; }
 
             const categoryFilter = document.getElementById('category-filter-select').value;
 
@@ -906,6 +1038,12 @@
                 const card = document.createElement('div');
                 card.id = `clip-card-${c.id}`;
                 card.className = "glass-panel rounded-2xl p-4 flex flex-col justify-between border border-gray-800 hover:border-gray-700 transition space-y-3";
+                // Draggable onto the week schedule (review UX).
+                card.draggable = true;
+                card.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.setData('text/plain', String(c.id));
+                    e.dataTransfer.effectAllowed = 'copy';
+                });
                 
                 const isReady = c.status === 'ready_to_upload' || c.status === 'edited';
                 const videoSrc = isReady ? `/video/${c.id}` : '';
@@ -1113,25 +1251,61 @@
             const mirror = document.getElementById('toggle-mirror').checked;
             const hdr = document.getElementById('toggle-hdr').checked;
             const layout = document.getElementById('video-layout-select').value;
+            const trackingTarget = document.getElementById('tracking-target-select').value;
             const captionPos = document.getElementById('caption-position-select').value;
             const customCaption = document.getElementById('custom-caption-input').value.trim();
+            const bannerTiming = document.getElementById('banner-timing-select').value;
+            const shortClip = document.getElementById('toggle-short-clip').checked;
+            const bgm = document.getElementById('toggle-bgm').checked;
+            const quoteLine = document.getElementById('toggle-quote-line').checked;
+            const game = document.getElementById('game-input').value.trim();
 
             showToast(`Capturing ${duration}s slice for ${streamer}! [Position: ${captionPos.toUpperCase()}]`);
             await fetch('/api/clips/trigger', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
-                    streamer, 
-                    duration, 
-                    mirror, 
+                    streamer,
+                    duration,
+                    mirror,
                     hdr_sharpness: hdr,
                     layout: layout,
+                    tracking_target: trackingTarget,
                     auto_captions: false,
                     caption_position: captionPos,
-                    custom_caption: customCaption
+                    custom_caption: customCaption,
+                    short_clip: shortClip,
+                    banner_timing: bannerTiming,
+                    quote_line_enabled: quoteLine,
+                    bgm: bgm,
+                    game: game || null
                 })
             });
             setTimeout(fetchClips, 2500);
+        }
+
+        async function clipVod() {
+            const source = document.getElementById('vod-source-input').value.trim();
+            if (!source) {
+                showToast('Paste a video link or file path first!');
+                return;
+            }
+            const streamer = document.getElementById('vod-streamer-input').value.trim();
+            const duration = parseInt(document.getElementById('vod-duration-select').value, 10);
+            const layout = document.getElementById('video-layout-select').value;
+
+            showToast('Finding the best moment in your video...');
+            await fetch('/api/vod/clip', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    source,
+                    streamer: streamer || null,
+                    duration,
+                    layout
+                })
+            });
+            setTimeout(fetchClips, 3000);
         }
 
         let modalCaptionPos = 'top';
@@ -1157,8 +1331,10 @@
 
             const text = document.getElementById('modal-title-input').value.trim();
             const layout = document.getElementById('video-layout-select').value;
+            const trackingTarget = document.getElementById('tracking-target-select').value;
             const mirror = document.getElementById('toggle-mirror').checked;
             const hdr = document.getElementById('toggle-hdr').checked;
+            const quoteLine = document.getElementById('toggle-modal-quote-line').checked;
 
             try {
                 showToast(`Re-rendering Clip #${currentModalClipId} with ${modalCaptionPos.toUpperCase()} caption...`);
@@ -1169,8 +1345,10 @@
                         caption_position: modalCaptionPos,
                         custom_caption: text,
                         layout: layout,
+                        tracking_target: trackingTarget,
                         mirror: mirror,
-                        hdr_sharpness: hdr
+                        hdr_sharpness: hdr,
+                        quote_line_enabled: quoteLine
                     })
                 });
 
@@ -1551,6 +1729,280 @@
             else { const d = await res.json().catch(() => ({})); showToast('Could not record performance: ' + (d.detail || res.status)); }
         };
 
+        // --- gta6-clipper upgrades: clip rules, live hunt, review UX, voice-over ---
+
+        // Clip permission badge (feature 13): allowed / ask / no / unknown.
+        const CLIP_RULE_STYLES = {
+            allowed: 'bg-emerald-950 text-emerald-400 border-emerald-800',
+            ask: 'bg-amber-950 text-amber-400 border-amber-800',
+            no: 'bg-red-950 text-red-400 border-red-800',
+            unknown: 'bg-gray-900 text-gray-400 border-gray-700'
+        };
+        async function fetchClipRule(streamer) {
+            const badge = document.getElementById('clip-rule-badge');
+            if (!badge || !streamer) return;
+            try {
+                const res = await fetch(`/api/clip-rules/kick/${encodeURIComponent(streamer.toLowerCase())}`);
+                const data = await res.json();
+                const value = document.getElementById('clip-rule-value');
+                value.innerText = data.rule || 'unknown';
+                value.className = 'font-bold font-mono px-2 py-0.5 rounded border ' + (CLIP_RULE_STYLES[data.rule] || CLIP_RULE_STYLES.unknown);
+                document.getElementById('clip-rule-note').innerText = data.note || (data.rule === 'unknown' ? 'No rule on file for this streamer yet.' : '');
+                const src = document.getElementById('clip-rule-source');
+                if (data.source) { src.href = data.source; src.classList.remove('hidden'); }
+                else { src.classList.add('hidden'); }
+                badge.classList.remove('hidden');
+            } catch (e) { console.error(e); }
+        }
+
+        // Live hunt (feature 14): who is live on Kick / Twitch / YouTube.
+        async function fetchHunt() {
+            const list = document.getElementById('hunt-list');
+            const extra = document.getElementById('hunt-streamers-input').value.trim();
+            const url = extra ? '/api/hunt?streamers=' + encodeURIComponent(extra) : '/api/hunt';
+            try {
+                const res = await fetch(url);
+                const rows = await res.json();
+                if (!rows.length) { list.innerHTML = 'No streamers to hunt — add one above, e.g. kick:adinross, twitch:xqc.'; return; }
+                list.innerHTML = rows.map(r => `
+                    <div class="flex items-center justify-between gap-2 bg-black/40 border border-gray-800 rounded-xl px-3 py-2 mb-1.5 flex-wrap">
+                        <span class="font-mono font-bold text-white">${r.platform}:${r.handle}</span>
+                        <span class="${r.live ? 'text-emerald-400' : 'text-gray-500'} font-bold">${r.live ? '🔴 LIVE' : '⚫ offline'}</span>
+                        <span class="text-gray-300 truncate max-w-xs" title="${(r.title || '').replace(/"/g, '&quot;')}">${r.title || ''}</span>
+                        <span class="text-gray-400 font-mono">${r.live ? (r.viewers || 0).toLocaleString() + ' viewers' : ''}</span>
+                        ${r.error ? `<span class="text-amber-400">${r.error}</span>` : ''}
+                        <span class="flex gap-1.5">
+                            <button onclick="fetchHuntPast('${r.platform}', '${r.handle}')" class="px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 text-[11px]">Past streams</button>
+                            ${r.watching
+                                ? `<button onclick="huntStop('${r.platform}', '${r.handle}')" class="px-2 py-1 rounded bg-red-950 text-red-400 hover:bg-red-900 border border-red-800 text-[11px] font-semibold">⏹ Stop recording</button>`
+                                : `<button onclick="huntStart('${r.platform}', '${r.handle}')" class="px-2 py-1 rounded bg-emerald-950 text-emerald-400 hover:bg-emerald-900 border border-emerald-800 text-[11px] font-semibold">⏺ Record</button>`}
+                        </span>
+                    </div>`).join('');
+            } catch (e) { list.innerHTML = 'Live hunt failed to load.'; console.error(e); }
+        }
+        async function huntStart(platform, handle) {
+            const res = await fetch('/api/hunt/start', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({platform, handle})});
+            const data = await res.json().catch(() => ({}));
+            showToast(res.ok ? `Recording ${handle} (${platform})` : 'Could not start recording: ' + (data.detail || res.status));
+            fetchHunt();
+        }
+        async function huntStop(platform, handle) {
+            await fetch('/api/hunt/stop', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({platform, handle})});
+            showToast(`Stopped recording ${handle}`);
+            fetchHunt();
+        }
+        async function fetchHuntPast(platform, handle) {
+            const box = document.getElementById('hunt-past');
+            box.innerHTML = `Loading past streams for ${handle}…`;
+            try {
+                const res = await fetch(`/api/hunt/past?platform=${encodeURIComponent(platform)}&handle=${encodeURIComponent(handle)}`);
+                const rows = await res.json();
+                if (rows.length && rows[0].error) { box.innerHTML = `<span class="text-amber-400">${rows[0].error}</span>`; return; }
+                if (!rows.length) { box.innerHTML = `No past streams found for ${handle}.`; return; }
+                box.innerHTML = `<div class="font-bold text-gray-300 mb-1">Last streams — ${handle} (${platform})</div>` + rows.map(r => `
+                    <div class="flex items-center justify-between gap-2 bg-black/40 border border-gray-800 rounded-xl px-3 py-1.5 mb-1">
+                        <span class="text-gray-300 truncate">${r.title || '(untitled)'}</span>
+                        <span class="text-gray-500 font-mono whitespace-nowrap">${r.date || ''} · ${r.views ? r.views.toLocaleString() + ' views' : ''}</span>
+                        <button onclick="clipPastStream('${r.url}')" class="px-2 py-1 rounded bg-emerald-950 text-emerald-400 hover:bg-emerald-900 border border-emerald-800 text-[11px] font-semibold whitespace-nowrap">✂️ Clip this</button>
+                    </div>`).join('');
+            } catch (e) { box.innerHTML = 'Could not load past streams.'; console.error(e); }
+        }
+        function clipPastStream(url) {
+            const input = document.getElementById('vod-source-input');
+            if (input) { input.value = url; input.scrollIntoView({behavior: 'smooth', block: 'center'}); showToast('Past stream loaded into the VOD clipper — press Clip VOD.'); }
+        }
+
+        // --- Review UX (feature 21) ---
+        // Keyboard shortcuts: with a clip open, A approves, X rejects.
+        // Ignored while typing in an input, textarea or select.
+        document.addEventListener('keydown', (e) => {
+            const tag = (e.target.tagName || '').toLowerCase();
+            if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
+            if (!currentModalClipId) return;
+            const modal = document.getElementById('video-modal');
+            if (modal && modal.classList.contains('hidden')) return;
+            if (e.key === 'a' || e.key === 'A') submitApproval('approved');
+            if (e.key === 'x' || e.key === 'X') submitApproval('rejected');
+        });
+
+        // Shorts-by-day view: the same filtered clips, grouped under a
+        // heading per day (newest day first).
+        let byDayView = false;
+        function toggleByDayView() {
+            byDayView = !byDayView;
+            const btn = document.getElementById('btn-by-day');
+            btn.className = byDayView
+                ? 'px-3 py-1.5 rounded-xl bg-[#53fc18] text-black text-xs font-bold transition'
+                : 'px-3 py-1.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-xs font-semibold text-gray-200 border border-gray-700 transition';
+            renderClips();
+        }
+        function renderClipsByDay() {
+            const grid = document.getElementById('clips-grid');
+            const categoryFilter = document.getElementById('category-filter-select').value;
+            const filtered = allClipsData.filter(c => {
+                if (categoryFilter !== 'all' && c.category !== categoryFilter) return false;
+                if (currentFilter === 'active') return c.approval_status !== 'rejected';
+                if (currentFilter === 'saved') return (c.ai_score || 0) >= 80 && c.approval_status !== 'rejected';
+                if (currentFilter === 'review') return (c.ai_score || 0) < 80 && (c.ai_score || 0) >= 60 && c.approval_status !== 'rejected';
+                if (currentFilter === 'approved') return c.approval_status === 'approved';
+                if (currentFilter === 'rejected') return c.approval_status === 'rejected';
+                return true;
+            });
+            if (!filtered.length) {
+                grid.innerHTML = '<div class="col-span-full text-center py-16 glass-panel rounded-2xl"><div class="text-base font-semibold text-gray-300">No Matching Clips Found</div></div>';
+                return;
+            }
+            const byDay = {};
+            filtered.forEach(c => {
+                const day = (c.created_at || '').slice(0, 10) || 'Unknown date';
+                (byDay[day] = byDay[day] || []).push(c);
+            });
+            grid.className = 'space-y-6';
+            grid.innerHTML = Object.keys(byDay).sort().reverse().map(day => `
+                <div>
+                    <div class="flex items-center gap-2 mb-3">
+                        <span class="text-sm font-extrabold text-white">${day}</span>
+                        <span class="text-[11px] font-mono text-gray-400">${byDay[day].length} clip${byDay[day].length === 1 ? '' : 's'}</span>
+                        <span class="flex-1 border-t border-gray-800"></span>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                        ${byDay[day].map(c => `
+                            <div class="glass-panel rounded-2xl p-4 border border-gray-800 space-y-2 cursor-pointer hover:border-gray-700 transition" onclick="openModal(${c.id})">
+                                <div class="flex items-center justify-between text-xs">
+                                    <span class="font-mono uppercase text-gray-300">${c.streamer}</span>
+                                    <span class="font-mono font-bold ${c.approval_status === 'approved' ? 'text-emerald-400' : c.approval_status === 'rejected' ? 'text-red-400' : 'text-amber-400'}">${c.approval_status || 'pending'}</span>
+                                </div>
+                                <div class="text-xs font-extrabold text-white line-clamp-2">${c.title || 'Live Stream Highlight'}</div>
+                                <div class="text-[11px] text-gray-400">⭐ ${c.ai_score || 85}/100 · ${c.category || 'Viral Potential'}</div>
+                            </div>`).join('')}
+                    </div>
+                </div>`).join('');
+            // Restore the grid class for the flat view next time.
+            grid.dataset.byDay = '1';
+        }
+
+        // Week schedule: drag clip cards onto a day, preview what would
+        // be sent (dry run), then queue it for real.
+        let weekSchedule = [];  // [{clip_id, day, time, platform}]
+        function buildWeekGrid() {
+            const grid = document.getElementById('week-schedule-grid');
+            if (!grid) return;
+            const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            const today = new Date();
+            const monday = new Date(today);
+            monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+            grid.innerHTML = days.map((name, i) => {
+                const date = new Date(monday);
+                date.setDate(monday.getDate() + i);
+                const iso = date.toISOString().slice(0, 10);
+                const items = weekSchedule.filter(s => s.day === iso);
+                return `
+                <div class="bg-black/40 border border-gray-800 rounded-xl p-2 min-h-24 space-y-1.5" data-day="${iso}"
+                     ondragover="event.preventDefault(); event.dataTransfer.dropEffect='copy'; this.classList.add('border-[#53fc18]');"
+                     ondragleave="this.classList.remove('border-[#53fc18]');"
+                     ondrop="dropClipOnDay(event, '${iso}')">
+                    <div class="text-[11px] font-bold text-gray-300">${name} <span class="text-gray-500 font-mono">${iso.slice(5)}</span></div>
+                    ${items.map(s => {
+                        const clip = allClipsData.find(c => c.id === s.clip_id);
+                        return `<div class="bg-emerald-950/50 border border-emerald-800 rounded-lg px-2 py-1 text-[11px] flex items-center justify-between gap-1">
+                            <span class="text-gray-200 truncate" title="${(clip ? clip.title : 'Clip #' + s.clip_id) || ''}">#${s.clip_id} ${clip ? clip.title : ''}</span>
+                            <button onclick="removeScheduled(${s.clip_id}, '${iso}')" class="text-red-400 hover:text-red-300 shrink-0">✕</button>
+                        </div>`;
+                    }).join('') || '<div class="text-[10px] text-gray-600">Drop clips here</div>'}
+                </div>`;
+            }).join('');
+        }
+        function dropClipOnDay(event, dayIso) {
+            event.preventDefault();
+            event.currentTarget.classList.remove('border-[#53fc18]');
+            const clipId = parseInt(event.dataTransfer.getData('text/plain'), 10);
+            if (!clipId) return;
+            if (weekSchedule.some(s => s.clip_id === clipId && s.day === dayIso)) {
+                showToast(`Clip #${clipId} is already on ${dayIso}`);
+                return;
+            }
+            weekSchedule.push({
+                clip_id: clipId,
+                day: dayIso,
+                time: document.getElementById('schedule-time-input').value || '18:00',
+                platform: document.getElementById('schedule-platform-select').value || 'tiktok'
+            });
+            buildWeekGrid();
+            showToast(`Clip #${clipId} planned for ${dayIso} — preview it before scheduling.`);
+        }
+        function removeScheduled(clipId, dayIso) {
+            weekSchedule = weekSchedule.filter(s => !(s.clip_id === clipId && s.day === dayIso));
+            buildWeekGrid();
+        }
+        function clearSchedule() {
+            weekSchedule = [];
+            buildWeekGrid();
+            document.getElementById('schedule-preview').classList.add('hidden');
+        }
+        async function previewSchedule() {
+            const box = document.getElementById('schedule-preview');
+            box.classList.remove('hidden');
+            if (!weekSchedule.length) { box.innerHTML = '<span class="text-gray-400">Nothing planned yet — drag clips onto a day first.</span>'; return; }
+            box.innerHTML = 'Checking what would be sent…';
+            try {
+                const res = await fetch('/api/schedule/dry-run', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({items: weekSchedule})});
+                const data = await res.json();
+                let html = '<div class="font-bold text-gray-200 mb-2">👀 Dry-run preview — nothing has been queued yet</div>';
+                if (data.planned && data.planned.length) {
+                    html += '<div class="text-emerald-400 font-bold mb-1">Would be scheduled:</div>' + data.planned.map(p =>
+                        `<div class="py-0.5">• <b>#${p.clip_id}</b> ${p.title} → <b>${p.platform}</b> at ${p.scheduled_for.replace('T', ' ')}</div>`).join('');
+                } else {
+                    html += '<div class="text-gray-400">Nothing would be scheduled.</div>';
+                }
+                if (data.warnings && data.warnings.length) {
+                    html += '<div class="text-amber-400 font-bold mt-2 mb-1">Warnings (would be skipped):</div>' + data.warnings.map(w => `<div class="py-0.5 text-amber-200">⚠️ ${w}</div>`).join('');
+                }
+                box.innerHTML = html;
+            } catch (e) { box.innerHTML = 'Preview failed.'; console.error(e); }
+        }
+        async function confirmSchedule() {
+            if (!weekSchedule.length) { showToast('Nothing planned yet — drag clips onto a day first.'); return; }
+            const res = await fetch('/api/schedule/dry-run', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({items: weekSchedule})});
+            const data = await res.json();
+            let queued = 0;
+            for (const p of (data.planned || [])) {
+                const r = await fetch('/api/queue', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({clip_id: p.clip_id, platform: p.platform, scheduled_for: p.scheduled_for})});
+                if (r.ok) queued++;
+            }
+            showToast(queued ? `${queued} upload${queued === 1 ? '' : 's'} queued for the week.` : 'Nothing could be queued — check the dry-run preview.');
+            if (queued) { clearSchedule(); fetchQueue(); }
+        }
+
+        // Voice-over upload (feature 7): file -> base64 -> /api/voiceover.
+        async function uploadVoiceover() {
+            const fileInput = document.getElementById('voiceover-file-input');
+            const status = document.getElementById('voiceover-status');
+            const btn = document.getElementById('btn-voiceover');
+            if (!currentModalClipId) { status.innerText = 'Open a clip first.'; return; }
+            const file = fileInput.files && fileInput.files[0];
+            if (!file) { status.innerText = 'Pick a recording first (WAV / MP3 / M4A).'; return; }
+            const at = parseFloat(document.getElementById('voiceover-at-input').value || '0');
+            btn.disabled = true;
+            status.innerText = 'Mixing your voice into the clip…';
+            try {
+                const base64 = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(String(reader.result).split(',')[1]);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(file);
+                });
+                const res = await fetch('/api/voiceover', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({clip_id: currentModalClipId, voiceover_at: at, audio_base64: base64, filename: file.name})});
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) { status.innerText = 'Could not add the voice-over: ' + (data.detail || res.status); return; }
+                status.innerText = `✅ Voice-over added at ${at}s — the clip now has your line in it.`;
+                showToast('Voice-over added to the clip.');
+                fetchClips();
+            } catch (e) { status.innerText = 'Could not add the voice-over.'; console.error(e); }
+            finally { btn.disabled = false; }
+        }
+
         // Init
         fetchRates();
         fetchStats();
@@ -1561,6 +2013,9 @@
         fetchEarnings();
         fetchQueue();
         fetchAnalytics();
+        fetchHunt();
+        buildWeekGrid();
+        fetchClipRule('adinross');
         (function initReportMonth() {
             const now = new Date();
             document.getElementById('report-year').value = now.getFullYear();
@@ -1575,6 +2030,7 @@
         setInterval(fetchEarnings, 15000);
         setInterval(fetchQueue, 15000);
         setInterval(fetchAnalytics, 30000);
+        setInterval(fetchHunt, 60000);
     </script>
 </body>
 </html>

@@ -151,3 +151,38 @@ SUBTITLES_ENABLED = _env_bool("ENABLE_SUBTITLES", False)
 SUBTITLE_STYLE = os.getenv("SUBTITLE_STYLE", "classic")
 BROLL_ENABLED = _env_bool("BROLL_ENABLED", False)
 BGM_ENABLED = _env_bool("BGM_ENABLED", False)
+
+# --- v1.2.0: TikTok clipping upgrades ---------------------------------------
+# Headline timing: "4s" (Sara's rule — the white hook banner shows for
+# the first 4 seconds, then fades) or "whole_clip" (the headline stays
+# on screen for the whole clip, like @zysno / @godsclipper /
+# @kicksclipping). Default stays "4s"; an invalid value falls back
+# to "4s". Applies to the headline AND the quote line.
+BANNER_TIMING = os.getenv("BANNER_TIMING", "4s").strip().lower()
+if BANNER_TIMING not in ("4s", "whole_clip"):
+    BANNER_TIMING = "4s"
+# Quote line: one static spoken line under the headline (a single
+# caption, NOT word-by-word subtitles — those stay off by default).
+# OFF by default since v1.4.1 (Sara's call — the line reads as
+# captioning under the headline). Opt in per clip with
+# pipeline quote_line_enabled=True, the dashboard's quote-line
+# checkbox, or QUOTE_LINE_ENABLED=true here. The quote is still
+# picked and stored for every clip — it just is not drawn on the
+# video unless the line is enabled.
+QUOTE_LINE_ENABLED = _env_bool("QUOTE_LINE_ENABLED", False)
+# Short-clip mode: tight clips cut around the single peak moment
+# (the TikTok accounts' most viral clips are 9-17 s).
+SHORT_CLIP_ENABLED = _env_bool("SHORT_CLIP_ENABLED", False)
+SHORT_CLIP_SECONDS = _env_int("SHORT_CLIP_SECONDS", 12)
+# VOD clipping: where downloaded past videos are stored.
+VOD_DOWNLOAD_DIR = os.getenv("VOD_DOWNLOAD_DIR", str(BASE_DIR / "vod"))
+
+# --- v1.3.0: full-body tracking (FEATURE 3) ---------------------------------
+# What the speaker_tracking layout locks onto: "face" (default — the
+# existing face tracker) or "body" (MediaPipe Pose full-body tracking;
+# falls back to face tracking when no body is found). An invalid value
+# falls back to "face". The dashboard's tracking-target select and the
+# pipeline's tracking_target= argument override this per clip.
+TRACKING_TARGET = os.getenv("TRACKING_TARGET", "face").strip().lower()
+if TRACKING_TARGET not in ("face", "body"):
+    TRACKING_TARGET = "face"

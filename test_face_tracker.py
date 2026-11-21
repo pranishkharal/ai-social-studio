@@ -15,12 +15,21 @@ def test_detector():
     face_cascade = cv2.CascadeClassifier(cascade_path)
     print("CascadeClassifier initialized successfully!")
 
-    # Check MediaPipe
+    # Check MediaPipe (Tasks API — mediapipe >= 1.0 has no mp.solutions).
     try:
         import mediapipe as mp
-        mp_face = mp.solutions.face_detection
-        detector = mp_face.FaceDetection(model_selection=0, min_detection_confidence=0.5)
-        print("MediaPipe FaceDetection initialized successfully!")
+        from speaker_tracker import ensure_blazeface_model
+        model_path = ensure_blazeface_model("models")
+        if model_path is None:
+            print("MediaPipe: BlazeFace model unavailable (download failed)")
+        else:
+            base = mp.tasks.BaseOptions(model_asset_path=str(model_path))
+            options = mp.tasks.vision.FaceDetectorOptions(
+                base_options=base, min_detection_confidence=0.5,
+                running_mode=mp.tasks.vision.RunningMode.IMAGE)
+            detector = mp.tasks.vision.FaceDetector.create_from_options(options)
+            detector.close()
+            print("MediaPipe FaceDetector initialized successfully!")
     except Exception as e:
         print(f"MediaPipe error: {e}")
 

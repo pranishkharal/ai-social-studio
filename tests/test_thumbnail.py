@@ -427,7 +427,8 @@ def test_edit_clip_silence_trim_called_with_words(editor_setup, monkeypatch):
     trimmed.write_bytes(b"trimmed")
     calls = []
 
-    def fake_cut(input_path, words, output_path, max_gap=None, pad=None):
+    def fake_cut(input_path, words, output_path, max_gap=None, pad=None,
+                 snap=None, **kwargs):
         calls.append((input_path, words, output_path))
         return output_path, 2.5
 

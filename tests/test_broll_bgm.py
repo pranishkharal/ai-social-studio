@@ -257,11 +257,11 @@ def test_ducking_filter_uses_sidechaincompress():
     assert "sidechaincompress=threshold=0.08:ratio=5.0:attack=100:release=1000" in filt
     assert "[0:a]aformat=" in filt
     assert "[1:a]aformat=" in filt
-    assert "volume=0.25[bgm]" in filt
-    assert "amix=inputs=2:duration=first[a_out]" in filt
+    assert f"volume={bgm.BGM_BASE_VOLUME}[bgm]" in filt  # soft level (0.12): music stays well under the speech
+    assert "amix=inputs=2:duration=first:normalize=0[a_out]" in filt
 
 
 def test_background_filter_has_no_sidechain():
     filt, _ = bgm.build_background_filter()
     assert "sidechaincompress" not in filt
-    assert "amix=inputs=2:duration=first[a_out]" in filt
+    assert "amix=inputs=2:duration=first:normalize=0[a_out]" in filt

@@ -138,7 +138,7 @@ def pipeline_setup(tmp_path, monkeypatch, fresh_db):
     monkeypatch.setattr(pipe, "_mark", lambda *a, **k: None)
     monkeypatch.setattr(
         pipe.ai, "transcribe_clip",
-        lambda path: {"full_text": "what just happened", "words": list(WORDS)})
+        lambda path, **kwargs: {"full_text": "what just happened", "words": list(WORDS)})
 
     captured = {}
 

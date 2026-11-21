@@ -23,6 +23,8 @@ class KickMonitor:
             "Accept": "application/json",
         }
         self.active_recorders = {}  # {username: subprocess.Popen}
+        self.streamlink_recorders = {}  # {username: streamlink_recorder.StreamlinkRecorder}
+        self.streamlink_threads = {}  # {username: threading.Thread}
         self.streamer_cache = {}
         self.known_live = set()
         self.running = False
@@ -135,7 +137,16 @@ class KickMonitor:
         """
         if username in self.active_recorders and self.active_recorders[username].poll() is None:
             return  # Already recording
-            
+
+        # Streamlink fallback recorder (gta6-clipper feature 15):
+        # STREAMLINK_RECORDER=1 records with streamlink piped into
+        # ffmpeg instead of the direct ffmpeg HLS capture — streamlink
+        # negotiates the stream itself, which the plain ffmpeg capture
+        # has failed at before (403 / truncated streams).
+        if os.environ.get("STREAMLINK_RECORDER", "") == "1":
+            self.start_streamlink_recorder(username)
+            return
+
         streamer_buf_dir = BUFFER_DIR / username
         streamer_buf_dir.mkdir(parents=True, exist_ok=True)
         
@@ -171,12 +182,49 @@ class KickMonitor:
         except Exception as e:
             log_event("ERROR", "KickMonitor", f"Error launching recorder for {username}: {e}")
 
+    def start_streamlink_recorder(self, username: str):
+        """
+        Fallback recorder (gta6-clipper feature 15): streamlink piped
+        into ffmpeg, writing rolling 4 s segments into
+        buffer/<username>/seg/ (10-minute buffer, stall detection,
+        disk-full guard, back-off when offline). Runs in a daemon
+        thread; stop_recorder() stops it. Needs the streamlink
+        package (pip install streamlink).
+        """
+        if username in self.streamlink_recorders:
+            thread = self.streamlink_threads.get(username)
+            if thread is not None and thread.is_alive():
+                return  # Already recording
+        try:
+            from streamlink_recorder import StreamlinkRecorder
+        except ImportError as e:
+            log_event("ERROR", "KickMonitor",
+                      f"Streamlink recorder unavailable ({e}); "
+                      "install it with: pip install streamlink")
+            return
+        streamer_buf_dir = BUFFER_DIR / username
+        segment_dir = streamer_buf_dir / "seg"
+        segment_dir.mkdir(parents=True, exist_ok=True)
+        recorder = StreamlinkRecorder(f"https://kick.com/{username}", segment_dir)
+        thread = threading.Thread(target=recorder.run, daemon=True)
+        self.streamlink_recorders[username] = recorder
+        self.streamlink_threads[username] = thread
+        log_event("INFO", "KickMonitor",
+                  f"Starting streamlink recorder for {username}")
+        thread.start()
+
     def stop_recorder(self, username: str):
         if username in self.active_recorders:
             proc = self.active_recorders.pop(username)
             if proc.poll() is None:
                 proc.terminate()
                 log_event("INFO", "KickMonitor", f"Stopped recorder for {username}")
+        if username in self.streamlink_recorders:
+            recorder = self.streamlink_recorders.pop(username)
+            recorder.stop()
+            self.streamlink_threads.pop(username, None)
+            log_event("INFO", "KickMonitor",
+                      f"Stopped streamlink recorder for {username}")
 
     def list_buffer_chunks(self, username: str):
         """
@@ -295,6 +343,21 @@ class KickMonitor:
             subprocess.run(fallback_cmd, capture_output=True)
             if os.path.exists(output_clip_path):
                 return output_clip_path
+
+        # Fallback to the streamlink recorder's segments (feature 15):
+        # the last N seconds of the rolling 4 s segment buffer.
+        try:
+            from streamlink_recorder import latest_window
+            window = latest_window(streamer_buf_dir / "seg", duration_seconds,
+                                   output_clip_path)
+            if window:
+                log_event("INFO", "KickMonitor",
+                          f"Extracted {duration_seconds}s clip for {username} "
+                          "from the streamlink buffer")
+                return window
+        except Exception as e:
+            log_event("WARNING", "KickMonitor",
+                      f"Streamlink buffer extraction failed for {username}: {e}")
 
         return None
 

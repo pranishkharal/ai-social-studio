@@ -98,6 +98,8 @@ def init_db():
     ensure_column("clips", "youtube_description", "TEXT")
     ensure_column("clips", "instagram_caption", "TEXT")
     ensure_column("clips", "detected_streamers", "TEXT")
+    ensure_column("clips", "quote_line", "TEXT")
+    ensure_column("clips", "qc_report", "TEXT")
     ensure_column("streamers", "monitoring_enabled", "INTEGER DEFAULT 1")
     ensure_column("streamers", "monitoring_mode", "TEXT DEFAULT 'all'")
 
@@ -145,11 +147,12 @@ def add_clip(clip_data: dict) -> int:
 
 def update_clip_status(clip_id: int, status: str, edited_path: str = None, title: str = None,
                        caption: str = None, tags: str = None, hook_banner: str = None,
+                       quote_line: str = None,
                        story_summary: str = None, blue_comment: str = None, category: str = None,
                        ai_score: int = None, selection_reason: str = None,
                        youtube_title: str = None, youtube_description: str = None,
                        instagram_caption: str = None, approval_status: str = None,
-                       detected_streamers: str = None):
+                       detected_streamers: str = None, qc_report: str = None):
     conn = get_connection()
     updates = ["status = ?"]
     params = [status]
@@ -169,6 +172,9 @@ def update_clip_status(clip_id: int, status: str, edited_path: str = None, title
     if hook_banner:
         updates.append("hook_banner = ?")
         params.append(hook_banner)
+    if quote_line:
+        updates.append("quote_line = ?")
+        params.append(quote_line)
     if story_summary:
         updates.append("story_summary = ?")
         params.append(story_summary)
@@ -199,7 +205,10 @@ def update_clip_status(clip_id: int, status: str, edited_path: str = None, title
     if detected_streamers:
         updates.append("detected_streamers = ?")
         params.append(detected_streamers)
-        
+    if qc_report:
+        updates.append("qc_report = ?")
+        params.append(qc_report)
+
     params.append(clip_id)
     query = f"UPDATE clips SET {', '.join(updates)} WHERE id = ?"
     conn.execute(query, params)

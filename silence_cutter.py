@@ -30,6 +30,7 @@ generating ASS subtitles from them.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -38,6 +39,16 @@ from pathlib import Path
 
 DEFAULT_MAX_GAP_SECONDS = 1.5
 DEFAULT_PAD_SECONDS = 0.15
+
+# Sentence-boundary snapping (gta6-clipper feature 21): a clip should
+# never stop mid-thought. SNAP_MAX_EXTEND_SECONDS is how far past the
+# picked end the snap may reach for a sentence end; SNAP_MIN_LENGTH is
+# the shortest a clip may become when the snap backs off to an earlier
+# stop; SNAP_BREATH_SECONDS is the short breath kept after the last word.
+SNAP_MAX_EXTEND_SECONDS = 4.0
+SNAP_MIN_LENGTH_SECONDS = 12.0
+SNAP_BREATH_SECONDS = 0.25
+SNAP_PAUSE_SECONDS = 0.25  # word gap that counts as a breath (a stop)
 
 
 def _env_float(name, default):
@@ -62,7 +73,96 @@ def _creationflags():
     return subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
-def compute_keep_segments(words, max_gap=None, pad=None):
+def snap_clip_bounds(words, start, end, min_length=SNAP_MIN_LENGTH_SECONDS,
+                     max_extend=SNAP_MAX_EXTEND_SECONDS, exact=False):
+    """
+    Snap a clip's [start, end) bounds to sentence boundaries, so a clip
+    never starts mid-word or stops mid-thought.
+
+    The start moves to the first spoken word (minus a 0.2 s lead-in).
+    The end follows 4 rules, in order:
+      1. the next sentence end (a word ending in ``. ? !``) within
+         ``max_extend`` seconds past ``end``;
+      2. the pick already ends on a breath (a sentence end or a pause
+         of SNAP_PAUSE_SECONDS+ after the word): keep it;
+      3. back off to the last stop (sentence end or breath) that still
+         leaves at least ``min_length`` seconds of clip;
+      4. otherwise the next breath after ``end``; else the pick as-is.
+
+    ``exact=True`` skips the sentence rules: the end is the last word
+    that finishes by ``end`` (never mid-word) — for an explicit "end
+    2 s earlier" request, where rule 3 would snap far further back
+    than asked. A short breath (SNAP_BREATH_SECONDS) is kept after
+    the last word either way.
+
+    Args:
+        words: list of {"word", "start", "end"} dicts (Whisper word
+            timestamps, as in compute_keep_segments). Words without
+            timings are skipped; unpunctuated transcripts still snap
+            on breaths (rule 2/4).
+        start / end: the picked bounds in seconds.
+
+    Returns:
+        (new_start, new_end). Unchanged when there are no usable words.
+    """
+    timed = []
+    for w in words or []:
+        try:
+            w_start = float(w["start"])
+            w_end = float(w["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if w_end < w_start:
+            w_start, w_end = w_end, w_start
+        timed.append({"w": str(w.get("word", "")), "s": w_start, "e": w_end})
+    if not timed:
+        return start, end
+    timed.sort(key=lambda w: w["s"])
+
+    first = next((k for k, w in enumerate(timed) if w["e"] > start + 0.05),
+                 None)
+    if first is None:
+        return start, end
+    new_start = max(timed[first]["s"] - 0.2,
+                    timed[first - 1]["e"] if first else 0.0)
+
+    last = max((k for k, w in enumerate(timed) if w["s"] < end), default=first)
+    if exact:
+        last = max((k for k in range(first, len(timed))
+                    if timed[k]["e"] <= end + 0.05), default=first)
+        nxt = (timed[last + 1]["s"] - 0.05 if last + 1 < len(timed)
+               else timed[last]["e"] + SNAP_BREATH_SECONDS)
+        return (round(new_start, 3),
+                round(max(timed[last]["e"] + 0.1,
+                          min(timed[last]["e"] + SNAP_BREATH_SECONDS, nxt)), 3))
+
+    def _is_sentence_end(k):
+        return bool(re.search(r"[.?!]$", timed[k]["w"]))
+
+    def _is_stop(k):
+        return (_is_sentence_end(k) or k + 1 == len(timed)
+                or timed[k + 1]["s"] - timed[k]["e"] >= SNAP_PAUSE_SECONDS)
+
+    ahead = [k for k in range(last, len(timed))
+             if timed[k]["e"] <= end + max_extend]
+    end_idx = next((k for k in ahead if _is_sentence_end(k)), None)
+    if end_idx is None:
+        end_idx = next((k for k in ahead[:1] if _is_stop(k)), None)
+    if end_idx is None:
+        end_idx = next(
+            (k for k in range(last - 1, first - 1, -1)
+             if _is_stop(k) and timed[k]["e"] - new_start >= min_length),
+            None)
+    if end_idx is None:
+        end_idx = next((k for k in ahead if _is_stop(k)), last)
+    nxt = (timed[end_idx + 1]["s"] - 0.05 if end_idx + 1 < len(timed)
+           else timed[end_idx]["e"] + SNAP_BREATH_SECONDS)
+    new_end = max(timed[end_idx]["e"] + 0.1,
+                  min(timed[end_idx]["e"] + SNAP_BREATH_SECONDS, nxt))
+    return round(new_start, 3), round(new_end, 3)
+
+
+def compute_keep_segments(words, max_gap=None, pad=None, snap=False):
     """
     Compute keep-segments from Whisper word timestamps.
 
@@ -73,6 +173,12 @@ def compute_keep_segments(words, max_gap=None, pad=None):
             Defaults to env SILENCE_MAX_GAP_SECONDS (1.5).
         pad: seconds of audio kept around each speech run so words are
             never clipped. Defaults to env SILENCE_PAD_SECONDS (0.15).
+        snap: when True, the overall [first segment start, last segment
+            end] bounds are snapped to sentence boundaries with
+            snap_clip_bounds() before returning — the last segment is
+            extended to the next sentence end (at most 4 s) or backed
+            off to the last stop that keeps 12 s. Default False (the
+            old behaviour); clip_editor enables it for renders.
 
     Returns:
         List of (start, end) tuples in seconds, sorted and non-overlapping.
@@ -121,6 +227,27 @@ def compute_keep_segments(words, max_gap=None, pad=None):
             merged[-1] = (prev_start, max(prev_end, end))
         else:
             merged.append((start, end))
+
+    if snap:
+        # Sentence-boundary snapping: adjust the overall bounds, then
+        # clamp the segments to them. Extending the end to a sentence
+        # end may swallow a following segment (the pause before the
+        # sentence end is a breath, not dead air); backing off drops
+        # segments past the snapped end.
+        snapped_start, snapped_end = snap_clip_bounds(
+            words, merged[0][0], merged[-1][1])
+        snapped = []
+        for seg_start, seg_end in merged:
+            if seg_start >= snapped_end:
+                break
+            snapped.append((max(seg_start, snapped_start),
+                            min(seg_end, snapped_end)))
+        if snapped:
+            # Extend the last kept segment to the snapped end when the
+            # snap reached past it (a sentence end up to 4 s out).
+            if snapped[-1][1] < snapped_end:
+                snapped[-1] = (snapped[-1][0], snapped_end)
+            merged = snapped
     return merged
 
 
@@ -163,6 +290,62 @@ def remap_words(words, segments):
     return remapped
 
 
+def remap_time(t, segments):
+    """
+    Map one timestamp from original-clip time into trimmed-clip time.
+
+    A time inside a kept segment maps to its position inside the
+    trimmed clip; a time inside a dropped gap maps to the trimmed time
+    where the gap starts (the end of the previous kept segment); a
+    time past the last segment maps to the trimmed duration.
+    """
+    t = float(t)
+    trimmed = 0.0
+    for seg_start, seg_end in segments or []:
+        if t < seg_start:
+            return round(trimmed, 2)
+        if t < seg_end:
+            return round(trimmed + (t - seg_start), 2)
+        trimmed += seg_end - seg_start
+    return round(trimmed, 2)
+
+
+def remap_segments(named_segments, keep_segments):
+    """
+    Shift (start, end) segments from original-clip time into
+    trimmed-clip time (see remap_time). Used for speaker turns: the
+    camera-switch filter runs on the silence-trimmed source, so
+    speaker segments analysed on the raw clip must be remapped first
+    or the cuts land on the wrong seconds.
+
+    Args:
+        named_segments: [{"speaker", "start", "end", ...}] dicts (other
+            keys, e.g. "split", are kept).
+        keep_segments: keep-segments from compute_keep_segments().
+
+    Returns:
+        New list of segment dicts with remapped "start"/"end";
+        segments that collapse to zero length in trimmed time are
+        dropped.
+    """
+    if not keep_segments:
+        return [dict(s) for s in named_segments or []]
+    out = []
+    for seg in named_segments or []:
+        try:
+            start = remap_time(float(seg["start"]), keep_segments)
+            end = remap_time(float(seg["end"]), keep_segments)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if end <= start:
+            continue
+        new_seg = dict(seg)
+        new_seg["start"] = start
+        new_seg["end"] = end
+        out.append(new_seg)
+    return out
+
+
 def _probe_duration(path):
     """Total duration in seconds via ffprobe, or None if unavailable."""
     try:
@@ -186,7 +369,8 @@ def _run_ffmpeg(cmd, timeout=300):
     )
 
 
-def cut_silence(input_path, words, output_path, max_gap=None, pad=None):
+def cut_silence(input_path, words, output_path, max_gap=None, pad=None,
+                snap=False):
     """
     Cut silent gaps out of a clip using Whisper word timestamps.
 
@@ -195,6 +379,10 @@ def cut_silence(input_path, words, output_path, max_gap=None, pad=None):
         words: word dicts with "start"/"end" (see compute_keep_segments).
         output_path: where the trimmed clip is written.
         max_gap / pad: overrides for the env-driven defaults.
+        snap: when True, the clip bounds are snapped to sentence
+            boundaries (see snap_clip_bounds) before cutting, so the
+            trimmed clip never stops mid-thought. Default False;
+            clip_editor enables it for renders.
 
     Returns:
         (output_path, seconds_removed). When there is nothing to cut
@@ -208,7 +396,8 @@ def cut_silence(input_path, words, output_path, max_gap=None, pad=None):
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Source clip not found: {input_path}")
 
-    segments = compute_keep_segments(words, max_gap=max_gap, pad=pad)
+    segments = compute_keep_segments(words, max_gap=max_gap, pad=pad,
+                                     snap=snap)
 
     if not segments:
         # No word timings to cut by: leave the clip untouched.

@@ -4,9 +4,11 @@ SpeakerTracker — face-tracked auto-framing for 9:16 vertical clips.
 Backends, selected by the FACE_TRACKER_BACKEND env var
 (auto / mediapipe / haar / yolo, default auto):
 
-  1. MediaPipe BlazeFace (``mp.solutions.face_detection``) — the most robust
-     detector; an *optional* dependency. If mediapipe is not installed the
-     tracker falls back silently instead of crashing.
+  1. MediaPipe BlazeFace (Tasks API, ``mp.tasks.vision.FaceDetector``) —
+     the most robust detector; an *optional* dependency. The ~230 KB
+     BlazeFace model auto-downloads into models/ on first use. If mediapipe
+     is not installed (or the model cannot be fetched) the tracker falls
+     back silently instead of crashing.
   2. YOLO face detection (``ultralytics``) — optional; only used when the
      package is installed. Model file from the YOLO_FACE_MODEL env var
      (default ``yolov8n-face.pt``).
@@ -17,6 +19,12 @@ adapted from opensource-clipping (https://github.com/NaufalRizqullah/opensource-
 MIT licence), clipping/studio/face_detection.py and
 clipping/studio/render_camera_switch.py.
 
+Adaptive backend fallback: when the active non-Haar backend detects
+faces in fewer than BACKEND_MIN_DETECTION_RATE of sampled frames, the
+video is re-analysed with Haar (see analyze_video_trajectory). This
+keeps face-view tracking working on small-facecam streams where
+BlazeFace short-range cannot see the face at all.
+
 Public API is unchanged: analyze_video_trajectory() and
 get_ffmpeg_crop_filter() keep their signatures and return shapes, and the
 Haar path produces identical results to before this upgrade (same detection
@@ -24,6 +32,8 @@ code, same EMA smoothing).
 """
 
 import os
+import time
+
 import cv2
 import numpy as np
 from pathlib import Path
@@ -35,6 +45,98 @@ TRACK_SNAP_RATIO = 0.08        # hard snap when the target jumps this far
 MEDIAPIPE_MIN_CONFIDENCE = 0.5
 YOLO_MIN_CONFIDENCE = 0.5
 DEFAULT_YOLO_FACE_MODEL = "yolov8n-face.pt"
+
+# Adaptive backend fallback: when a non-Haar backend detects faces in
+# fewer than this fraction of sampled frames, the video is re-analysed
+# with Haar. BlazeFace short-range sees the whole frame at 128x128, so
+# on a small-facecam gaming stream it can miss the streamer entirely
+# (2% detection on a real adinross capture vs Haar's 100%) and the
+# camera would park at the centre with the facecam out of frame. Haar
+# sees small faces, so it is the right fallback. The re-run only
+# happens when the preferred backend essentially failed on this video.
+BACKEND_MIN_DETECTION_RATE = 0.20
+
+# --- MediaPipe BlazeFace model (Tasks API) ---
+# mediapipe >= 1.0 has no mp.solutions; the Tasks API needs a .tflite model
+# file. It auto-downloads on first use into models/ (never committed —
+# see .gitignore) and is validated by size before use. The real file is
+# 229,746 bytes; the bounds below just reject empty / truncated / junk files.
+MEDIAPIPE_MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/face_detector/"
+    "blaze_face_short_range/float16/1/blaze_face_short_range.tflite"
+)
+MEDIAPIPE_MODEL_FILENAME = "blaze_face_short_range.tflite"
+MEDIAPIPE_MODEL_MIN_BYTES = 50_000
+MEDIAPIPE_MODEL_MAX_BYTES = 5_000_000
+MEDIAPIPE_MODEL_DOWNLOAD_RETRIES = 3
+
+
+def _valid_model_file(path: Path) -> bool:
+    """True if *path* is a non-empty, plausibly-sized model file."""
+    try:
+        size = Path(path).stat().st_size
+    except OSError:
+        return False
+    return MEDIAPIPE_MODEL_MIN_BYTES <= size <= MEDIAPIPE_MODEL_MAX_BYTES
+
+
+def _safe_unlink(path: Path) -> None:
+    try:
+        Path(path).unlink()
+    except OSError:
+        pass
+
+
+def _download_file(url: str, dest_path: Path, timeout: int = 30) -> None:
+    """Download *url* to *dest_path*. Raises on any failure.
+
+    Kept as its own function so tests can monkeypatch it without touching
+    the network.
+    """
+    import urllib.request
+
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "ai-social-studio/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp, \
+            open(dest_path, "wb") as fh:
+        while True:
+            chunk = resp.read(65536)
+            if not chunk:
+                break
+            fh.write(chunk)
+
+
+def ensure_blazeface_model(models_dir) -> Path | None:
+    """Return the BlazeFace model path, downloading it on first use.
+
+    Returns None when the model cannot be obtained (no network, download
+    failure, or a file that fails validation) — callers fall back to Haar.
+    Downloads go to a ``.download`` temp file that is only renamed into
+    place after validation, so a failed download never leaves a bad model
+    behind.
+    """
+    models_dir = Path(models_dir)
+    model_path = models_dir / MEDIAPIPE_MODEL_FILENAME
+    if _valid_model_file(model_path):
+        return model_path
+    tmp_path = model_path.with_suffix(".tflite.download")
+    for attempt in range(1, MEDIAPIPE_MODEL_DOWNLOAD_RETRIES + 1):
+        try:
+            _download_file(MEDIAPIPE_MODEL_URL, tmp_path)
+        except Exception as e:
+            print(f"[SpeakerTracker] BlazeFace model download attempt "
+                  f"{attempt}/{MEDIAPIPE_MODEL_DOWNLOAD_RETRIES} failed ({e}).")
+            _safe_unlink(tmp_path)
+            if attempt < MEDIAPIPE_MODEL_DOWNLOAD_RETRIES:
+                time.sleep(1)
+            continue
+        if _valid_model_file(tmp_path):
+            os.replace(tmp_path, model_path)
+            return model_path
+        print("[SpeakerTracker] Downloaded BlazeFace model failed "
+              "validation; discarding it.")
+        _safe_unlink(tmp_path)
+    return None
 
 
 class SpeakerTracker:
@@ -88,11 +190,51 @@ class SpeakerTracker:
         self._active_backend = "haar"
 
     def _init_mediapipe(self) -> bool:
-        """Optional import of mediapipe. Returns True if a detector is ready."""
+        """Optional import of mediapipe (Tasks API). Returns True if a detector is ready.
+
+        mediapipe >= 1.0 dropped the legacy ``mp.solutions`` API, so the
+        primary path is the Tasks API (``mp.tasks.vision.FaceDetector`` with
+        the BlazeFace short-range model, auto-downloaded ~230 KB into
+        models/ on first use). A legacy ``mp.solutions`` fallback is kept
+        for old mediapipe installs. Any failure returns False and the
+        tracker falls back to Haar (or YOLO, in auto mode).
+        """
         try:
             import mediapipe as mp
         except ImportError:
             return False
+
+        # Tasks API: in mediapipe 1.x ``mp.tasks`` IS mediapipe.tasks.python,
+        # so the vision submodule is ``mp.tasks.vision``; try the longer
+        # ``mp.tasks.python.vision`` path too, for other layouts.
+        vision = None
+        for attr_path in ("tasks.vision", "tasks.python.vision"):
+            try:
+                vision = mp
+                for part in attr_path.split("."):
+                    vision = getattr(vision, part)
+                break
+            except AttributeError:
+                vision = None
+        if vision is not None:
+            model_path = ensure_blazeface_model(self.models_dir)
+            if model_path is None:
+                print("[SpeakerTracker] BlazeFace model unavailable; "
+                      "falling back.")
+                return False
+            try:
+                self._mp_detector = self._create_tasks_detector(
+                    mp, vision, str(model_path))
+            except Exception as e:
+                print(f"[SpeakerTracker] MediaPipe init failed ({e}); "
+                      "falling back.")
+                self._mp_detector = None
+                return False
+            self._mp_is_tasks = True
+            self._mp_module = mp
+            return True
+
+        # Legacy mp.solutions path (mediapipe < 1.0 only).
         try:
             face_detection = mp.solutions.face_detection
         except AttributeError:
@@ -106,7 +248,32 @@ class SpeakerTracker:
             print(f"[SpeakerTracker] MediaPipe init failed ({e}); falling back.")
             self._mp_detector = None
             return False
+        self._mp_is_tasks = False
+        self._mp_module = mp
         return True
+
+    @staticmethod
+    def _create_tasks_detector(mp, vision, model_path):
+        """Build a Tasks-API FaceDetector for the BlazeFace model.
+
+        mediapipe 1.x takes the model via ``BaseOptions``; 0.10.x took
+        ``model_asset_path`` directly on the options object. Try the 1.x
+        form first, then the 0.10.x form.
+        """
+        try:
+            base_options = mp.tasks.BaseOptions(model_asset_path=model_path)
+            options = vision.FaceDetectorOptions(
+                base_options=base_options,
+                min_detection_confidence=MEDIAPIPE_MIN_CONFIDENCE,
+                running_mode=vision.RunningMode.IMAGE,
+            )
+        except (AttributeError, TypeError):
+            options = vision.FaceDetectorOptions(
+                model_asset_path=model_path,
+                min_detection_confidence=MEDIAPIPE_MIN_CONFIDENCE,
+                running_mode=vision.RunningMode.IMAGE,
+            )
+        return vision.FaceDetector.create_from_options(options)
 
     def _init_yolo(self) -> bool:
         """Optional import of ultralytics. Returns True if a model is ready."""
@@ -150,8 +317,29 @@ class SpeakerTracker:
         return detected_boxes
 
     def _detect_faces_mediapipe(self, frame):
-        """MediaPipe BlazeFace (short-range) via mp.solutions.face_detection."""
+        """MediaPipe BlazeFace (short-range).
+
+        Tasks API: wraps the frame in an mp.Image, calls detect(), and
+        converts each detection's pixel bounding_box to (x, y, w, h).
+        Legacy mp.solutions installs use the relative-bounding-box path.
+        """
         frame_h, frame_w = frame.shape[:2]
+        if getattr(self, "_mp_is_tasks", False):
+            mp = self._mp_module
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+            result = self._mp_detector.detect(image)
+            detected_boxes = []
+            for det in (getattr(result, "detections", None) or []):
+                bb = det.bounding_box
+                x = int(max(0, bb.origin_x))
+                y = int(max(0, bb.origin_y))
+                w = int(min(bb.width, frame_w - x))
+                h = int(min(bb.height, frame_h - y))
+                if w > 0 and h > 0:
+                    detected_boxes.append((x, y, w, h))
+            return detected_boxes
+        # Legacy mp.solutions path (unchanged).
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self._mp_detector.process(rgb)
         detected_boxes = []
@@ -204,7 +392,7 @@ class SpeakerTracker:
     # ------------------------------------------------------------------
     # Trajectory
     # ------------------------------------------------------------------
-    def analyze_video_trajectory(self, video_path: str, target_aspect: float = 9/16, sample_fps: int = 6) -> list:
+    def analyze_video_trajectory(self, video_path: str, target_aspect: float = 9/16, sample_fps: int = 6, fallback_to_haar: bool = True) -> list:
         """
         Analyzes video frames to track the active talking person(s).
         Returns a smoothed list of crop_x positions for the video duration.
@@ -213,6 +401,13 @@ class SpeakerTracker:
         (smoothed_x, raw_w, raw_h, crop_w) — smoothed_x has one crop_x per
         frame of the source video. Pass sample_fps=4 for the 0.25 s sampling
         cadence opensource-clipping uses with MediaPipe.
+
+        Adaptive fallback (fallback_to_haar=True, the default): when the
+        active non-Haar backend detects faces in fewer than
+        BACKEND_MIN_DETECTION_RATE of sampled frames, the video is
+        re-analysed with Haar, which sees small faces the other backends
+        miss. Pass fallback_to_haar=False only to measure a backend's raw
+        behaviour (scripts/compare_trackers.py does this).
         """
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
@@ -231,6 +426,7 @@ class SpeakerTracker:
         frame_interval = max(1, int(orig_fps / sample_fps))
         sample_x_targets = []
         sample_frame_indices = []
+        detection_samples = 0  # samples with >=1 face (adaptive fallback)
 
         last_known_target = center_default_x
         frame_idx = 0
@@ -242,6 +438,8 @@ class SpeakerTracker:
 
             if frame_idx % frame_interval == 0:
                 detected_boxes = self._detect_faces(frame)
+                if detected_boxes:
+                    detection_samples += 1
 
                 if len(detected_boxes) == 1:
                     # Single person in frame - center crop on this person
@@ -277,6 +475,24 @@ class SpeakerTracker:
 
         if not sample_x_targets:
             return [center_default_x] * total_frames
+
+        # Adaptive backend fallback: a non-Haar backend that barely
+        # detects anything on this video (e.g. BlazeFace on a
+        # small-facecam gaming stream — it sees the frame at 128x128,
+        # so a ~75 px facecam face is ~5 px and invisible) would leave
+        # the camera parked at the centre and miss the facecam. When
+        # the detection rate is below BACKEND_MIN_DETECTION_RATE the
+        # video is re-analysed with Haar, which sees small faces.
+        # Recursion is depth-1: the re-run uses Haar, so the condition
+        # cannot trigger again (and fallback_to_haar=False guards it).
+        if (fallback_to_haar and self._active_backend != "haar"
+                and detection_samples / len(sample_x_targets) < BACKEND_MIN_DETECTION_RATE):
+            rate = detection_samples / len(sample_x_targets)
+            print(f"[SpeakerTracker] {self._active_backend} detected faces in only "
+                  f"{rate:.0%} of samples; re-analysing with Haar.")
+            self._active_backend = "haar"
+            return self.analyze_video_trajectory(
+                video_path, target_aspect, sample_fps, fallback_to_haar=False)
 
         # Interpolate trajectory across all frames
         raw_interpolated = np.interp(range(total_frames), sample_frame_indices, sample_x_targets)
@@ -331,6 +547,45 @@ class SpeakerTracker:
             smoothed.append(int(max(0, min(max_x, round(cam_x)))))
         return smoothed
 
+    def analyze_face_boxes(self, video_path: str, sample_fps: int = 6) -> list:
+        """
+        Sampled face boxes in SOURCE coordinates, for face-aware
+        banner placement (face_avoidance.py).
+
+        Returns [(frame_idx, [(x, y, w, h), ...]), ...] — one entry
+        per sampled frame (sample_fps samples per second), each box
+        in full-resolution source pixels, detected with the same
+        _detect_faces() backend the trajectory uses. The caller maps
+        the boxes through the crop trajectory to 1080x1920 output
+        coordinates; boxes in the tracker's (unmirrored) source
+        coordinates must be mirrored first when the render is
+        mirrored (see face_avoidance.mirror_box).
+
+        Opens its own VideoCapture loop; analyze_video_trajectory()
+        is untouched.
+        """
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            raise RuntimeError(f"Cannot open video: {video_path}")
+
+        orig_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        frame_interval = max(1, int(orig_fps / sample_fps))
+        samples = []
+        frame_idx = 0
+        try:
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                if frame_idx % frame_interval == 0:
+                    boxes = self._detect_faces(frame)
+                    samples.append((frame_idx,
+                                    [tuple(int(v) for v in b) for b in boxes]))
+                frame_idx += 1
+        finally:
+            cap.release()
+        return samples
+
     def get_ffmpeg_crop_filter(self, smoothed_x: list, orig_fps: float = 30.0, crop_w: int = 608, raw_h: int = 1080) -> str:
         """
         Creates an ultra-efficient FFmpeg crop filter expression.
@@ -365,6 +620,24 @@ class SpeakerTracker:
             expr = f"if(lt(t,{t_end}),{current_seg},{expr})"
 
         return f"crop={crop_w}:{raw_h}:'{expr}':0,scale=1080:1920"
+
+    def close(self):
+        """Release the MediaPipe detector (if one was created).
+
+        The Tasks API FaceDetector holds native resources; call this when
+        a tracker is done (long-running processes creating many trackers).
+        Safe to call on a Haar/YOLO tracker or twice — it is a no-op then.
+        """
+        detector = getattr(self, "_mp_detector", None)
+        if detector is not None:
+            close = getattr(detector, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
+            self._mp_detector = None
+        self._active_backend = None
 
 if __name__ == "__main__":
     import sys
