@@ -17,17 +17,19 @@ echo  ----------------------------------------------------------------
 echo   [1] Native Windows Desktop App (Standalone Window Mode)
 echo   [2] Web App / Website (Opens in Browser: http://localhost:8500)
 echo   [3] Create Desktop Shortcut (Add 1-Click Icon to Windows Desktop)
-echo   [4] Exit
+echo   [4] Update from GitHub (Pull latest changes & dependencies)
+echo   [5] Exit
 echo  ----------------------------------------------------------------
 echo.
 
-set /p CHOICE="Enter choice [1, 2, 3, or 4] (Default is 1): "
+set /p CHOICE="Enter choice [1, 2, 3, 4, or 5] (Default is 1): "
 if "%CHOICE%"=="" set CHOICE=1
 
 if "%CHOICE%"=="1" goto NATIVE_APP
 if "%CHOICE%"=="2" goto WEB_APP
 if "%CHOICE%"=="3" goto SHORTCUT
-if "%CHOICE%"=="4" exit /b
+if "%CHOICE%"=="4" goto UPDATE_GIT
+if "%CHOICE%"=="5" exit /b
 goto MENU
 
 :NATIVE_APP
@@ -51,4 +53,9 @@ echo [SETUP] Creating 1-Click Desktop Shortcut on Windows Desktop...
 python create_desktop_shortcut.py
 echo.
 pause
+goto MENU
+
+:UPDATE_GIT
+echo.
+call update.bat
 goto MENU
