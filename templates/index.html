@@ -662,17 +662,33 @@
                         <video id="crop-video-element" class="w-full h-full object-contain pointer-events-none" playsinline muted crossorigin="anonymous"></video>
 
                         <!-- Cyan Gameplay Box -->
-                        <div id="crop-box-game" class="absolute border-2 border-cyan-400 bg-cyan-400/20 rounded-lg cursor-move select-none transition-shadow hover:shadow-[0_0_15px_rgba(34,211,238,0.5)] z-10 flex flex-col justify-between p-1.5" style="left: 15%; top: 10%; width: 70%; height: 80%;">
-                            <span class="text-[10px] font-bold font-mono bg-cyan-950/90 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-700 w-fit pointer-events-none">🎮 Gameplay (Bottom)</span>
-                            <!-- Resize Handle -->
-                            <div class="crop-resize-handle absolute bottom-0 right-0 w-4 h-4 bg-cyan-400 rounded-br cursor-nwse-resize z-20" data-box="game"></div>
+                        <div id="crop-box-game" class="absolute border-2 border-cyan-400 bg-cyan-400/20 rounded-lg cursor-grab active:cursor-grabbing select-none transition-shadow hover:shadow-[0_0_15px_rgba(34,211,238,0.5)] z-20 flex flex-col justify-between p-2" style="left: 15%; top: 10%; width: 70%; height: 80%;">
+                            <div class="flex items-center justify-between pointer-events-none">
+                                <span class="text-[10px] font-bold font-mono bg-cyan-950/95 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-600 flex items-center space-x-1 shadow">
+                                    <span>🎮 Gameplay (Bottom 9:16)</span>
+                                </span>
+                                <span class="text-[9px] text-cyan-200/80 font-mono">✥ Drag Box / Corners</span>
+                            </div>
+                            <!-- 4 Corner Resize Handles -->
+                            <div class="crop-resize-handle absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-cyan-400 border border-black rounded-sm cursor-nw-resize z-40" data-box="game" data-handle="nw"></div>
+                            <div class="crop-resize-handle absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-cyan-400 border border-black rounded-sm cursor-ne-resize z-40" data-box="game" data-handle="ne"></div>
+                            <div class="crop-resize-handle absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-cyan-400 border border-black rounded-sm cursor-sw-resize z-40" data-box="game" data-handle="sw"></div>
+                            <div class="crop-resize-handle absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-cyan-400 border border-black rounded-sm cursor-se-resize z-40" data-box="game" data-handle="se"></div>
                         </div>
 
                         <!-- Purple Facecam Box -->
-                        <div id="crop-box-cam" class="absolute border-2 border-purple-500 bg-purple-500/25 rounded-lg cursor-move select-none transition-shadow hover:shadow-[0_0_15px_rgba(168,85,247,0.5)] z-20 flex flex-col justify-between p-1.5" style="left: 68%; top: 6%; width: 28%; height: 36%;">
-                            <span class="text-[10px] font-bold font-mono bg-purple-950/90 text-purple-300 px-1.5 py-0.5 rounded border border-purple-700 w-fit pointer-events-none">👤 Facecam (Top)</span>
-                            <!-- Resize Handle -->
-                            <div class="crop-resize-handle absolute bottom-0 right-0 w-4 h-4 bg-purple-500 rounded-br cursor-nwse-resize z-30" data-box="cam"></div>
+                        <div id="crop-box-cam" class="absolute border-2 border-purple-500 bg-purple-500/25 rounded-lg cursor-grab active:cursor-grabbing select-none transition-shadow hover:shadow-[0_0_15px_rgba(168,85,247,0.5)] z-30 flex flex-col justify-between p-2" style="left: 68%; top: 6%; width: 28%; height: 36%;">
+                            <div class="flex items-center justify-between pointer-events-none">
+                                <span class="text-[10px] font-bold font-mono bg-purple-950/95 text-purple-300 px-1.5 py-0.5 rounded border border-purple-600 flex items-center space-x-1 shadow">
+                                    <span>👤 Facecam (Top 9:16)</span>
+                                </span>
+                                <span class="text-[9px] text-purple-200/80 font-mono">✥ Drag Box / Corners</span>
+                            </div>
+                            <!-- 4 Corner Resize Handles -->
+                            <div class="crop-resize-handle absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-purple-400 border border-black rounded-sm cursor-nw-resize z-40" data-box="cam" data-handle="nw"></div>
+                            <div class="crop-resize-handle absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-purple-400 border border-black rounded-sm cursor-ne-resize z-40" data-box="cam" data-handle="ne"></div>
+                            <div class="crop-resize-handle absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-purple-400 border border-black rounded-sm cursor-sw-resize z-40" data-box="cam" data-handle="sw"></div>
+                            <div class="crop-resize-handle absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-purple-400 border border-black rounded-sm cursor-se-resize z-40" data-box="cam" data-handle="se"></div>
                         </div>
                     </div>
                 </div>
@@ -839,17 +855,35 @@
             }
         }
 
+        function bringBoxToFront(boxType) {
+            const camEl = document.getElementById('crop-box-cam');
+            const gameEl = document.getElementById('crop-box-game');
+            if (boxType === 'cam') {
+                if (camEl) camEl.style.zIndex = '35';
+                if (gameEl) gameEl.style.zIndex = '20';
+            } else {
+                if (gameEl) gameEl.style.zIndex = '35';
+                if (camEl) camEl.style.zIndex = '20';
+            }
+        }
+
+        let cropDragHandlersInitialized = false;
+
         function initCropDragHandlers() {
             const stage = document.getElementById('crop-stage');
             if (!stage) return;
+            if (cropDragHandlersInitialized) return;
+            cropDragHandlersInitialized = true;
 
-            function onPointerDown(e, boxType, isResize) {
+            function startDrag(e, boxType, handle) {
                 e.preventDefault();
                 e.stopPropagation();
+                bringBoxToFront(boxType);
                 const rect = stage.getBoundingClientRect();
                 cropState.activeDrag = {
                     box: boxType,
-                    action: isResize ? 'resize' : 'move',
+                    action: handle ? 'resize' : 'move',
+                    handle: handle || null,
                     startX: e.clientX,
                     startY: e.clientY,
                     stageWidth: rect.width || 800,
@@ -861,29 +895,25 @@
             const camBox = document.getElementById('crop-box-cam');
             const gameBox = document.getElementById('crop-box-game');
 
-            if (camBox) {
-                camBox.addEventListener('mousedown', (e) => {
-                    if (e.target.classList.contains('crop-resize-handle')) {
-                        onPointerDown(e, 'cam', true);
-                    } else {
-                        onPointerDown(e, 'cam', false);
-                    }
-                });
-            }
+            ['pointerdown', 'mousedown'].forEach(evtName => {
+                if (camBox) {
+                    camBox.addEventListener(evtName, (e) => {
+                        const handle = e.target.getAttribute('data-handle');
+                        startDrag(e, 'cam', handle);
+                    });
+                }
+                if (gameBox) {
+                    gameBox.addEventListener(evtName, (e) => {
+                        const handle = e.target.getAttribute('data-handle');
+                        startDrag(e, 'game', handle);
+                    });
+                }
+            });
 
-            if (gameBox) {
-                gameBox.addEventListener('mousedown', (e) => {
-                    if (e.target.classList.contains('crop-resize-handle')) {
-                        onPointerDown(e, 'game', true);
-                    } else {
-                        onPointerDown(e, 'game', false);
-                    }
-                });
-            }
-
-            window.addEventListener('mousemove', (e) => {
+            function onMove(e) {
                 if (!cropState.activeDrag) return;
-                const { box, action, startX, startY, stageWidth, stageHeight, initBox } = cropState.activeDrag;
+                e.preventDefault();
+                const { box, action, handle, startX, startY, stageWidth, stageHeight, initBox } = cropState.activeDrag;
                 const dx = (e.clientX - startX) / stageWidth;
                 const dy = (e.clientY - startY) / stageHeight;
 
@@ -893,17 +923,47 @@
                     cropState[box].x = newX;
                     cropState[box].y = newY;
                 } else if (action === 'resize') {
-                    let newW = Math.max(0.1, Math.min(1 - initBox.x, initBox.w + dx));
-                    let newH = Math.max(0.1, Math.min(1 - initBox.y, initBox.h + dy));
-                    cropState[box].w = newW;
-                    cropState[box].h = newH;
+                    if (handle === 'se') {
+                        let newW = Math.max(0.08, Math.min(1 - initBox.x, initBox.w + dx));
+                        let newH = Math.max(0.08, Math.min(1 - initBox.y, initBox.h + dy));
+                        cropState[box].w = newW;
+                        cropState[box].h = newH;
+                    } else if (handle === 'sw') {
+                        let newW = Math.max(0.08, Math.min(initBox.x + initBox.w, initBox.w - dx));
+                        let newX = initBox.x + (initBox.w - newW);
+                        let newH = Math.max(0.08, Math.min(1 - initBox.y, initBox.h + dy));
+                        cropState[box].x = newX;
+                        cropState[box].w = newW;
+                        cropState[box].h = newH;
+                    } else if (handle === 'ne') {
+                        let newW = Math.max(0.08, Math.min(1 - initBox.x, initBox.w + dx));
+                        let newH = Math.max(0.08, Math.min(initBox.y + initBox.h, initBox.h - dy));
+                        let newY = initBox.y + (initBox.h - newH);
+                        cropState[box].y = newY;
+                        cropState[box].w = newW;
+                        cropState[box].h = newH;
+                    } else if (handle === 'nw') {
+                        let newW = Math.max(0.08, Math.min(initBox.x + initBox.w, initBox.w - dx));
+                        let newX = initBox.x + (initBox.w - newW);
+                        let newH = Math.max(0.08, Math.min(initBox.y + initBox.h, initBox.h - dy));
+                        let newY = initBox.y + (initBox.h - newH);
+                        cropState[box].x = newX;
+                        cropState[box].y = newY;
+                        cropState[box].w = newW;
+                        cropState[box].h = newH;
+                    }
                 }
                 updateCropBoxesDOM();
-            });
+            }
 
-            window.addEventListener('mouseup', () => {
+            function onUp() {
                 cropState.activeDrag = null;
-            });
+            }
+
+            window.addEventListener('pointermove', onMove, { passive: false });
+            window.addEventListener('mousemove', onMove, { passive: false });
+            window.addEventListener('pointerup', onUp);
+            window.addEventListener('mouseup', onUp);
         }
 
         function startCropRenderLoop() {
@@ -1085,6 +1145,7 @@
                     video.play().catch(() => {});
                 };
 
+                initCropDragHandlers();
                 updateCropBoxesDOM();
                 document.getElementById('visual-crop-modal').classList.remove('hidden');
                 startCropRenderLoop();
@@ -1128,6 +1189,7 @@
             document.getElementById('val-trim-end').innerText = cropState.endTime.toFixed(1) + 's';
             document.getElementById('crop-trim-duration').innerText = cropState.endTime.toFixed(1) + 's';
 
+            initCropDragHandlers();
             updateCropBoxesDOM();
             document.getElementById('visual-crop-modal').classList.remove('hidden');
             startCropRenderLoop();
