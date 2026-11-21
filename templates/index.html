@@ -192,6 +192,10 @@
                                 <span class="text-[#53fc18] font-bold">35s</span>
                             </button>
                         </div>
+                        <button type="button" onclick="openVisualCropForLiveStream()" class="w-full mt-2.5 bg-purple-950/70 hover:bg-purple-900 border border-purple-700 text-purple-200 text-xs font-bold py-2 rounded-xl transition flex items-center justify-center space-x-1.5 shadow">
+                            <span>✂️ Open Visual Clip Studio</span>
+                            <span class="text-[10px] text-purple-300 font-mono">(Dual-Crop Facecam & Game)</span>
+                        </button>
                     </div>
                 </div>
 
@@ -613,6 +617,150 @@
         </div>
     </div>
 
+    <!-- VISUAL CLIP STUDIO & 9:16 PORTRAIT DUAL-CROP MODAL (TWITCH-STYLE) -->
+    <div id="visual-crop-modal" class="fixed inset-0 bg-black/90 backdrop-blur-md hidden z-50 flex items-center justify-center p-2 sm:p-4">
+        <div class="glass-panel bg-gray-950 border border-gray-800 rounded-3xl max-w-6xl w-full p-4 sm:p-6 relative flex flex-col max-h-[96vh] overflow-y-auto custom-scroll space-y-4">
+            
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+                <div class="flex items-center space-x-2.5">
+                    <span class="text-xl">✂️</span>
+                    <div>
+                        <h3 class="text-base font-extrabold text-white flex items-center space-x-2">
+                            <span>Visual Clip Studio</span>
+                            <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-800">9:16 Portrait Dual-Crop</span>
+                        </h3>
+                        <p class="text-xs text-gray-400">Drag the <span class="text-purple-400 font-bold">Purple Box</span> over Facecam and <span class="text-cyan-400 font-bold">Cyan Box</span> over Gameplay for the vertical video.</p>
+                    </div>
+                </div>
+                <button onclick="closeVisualCropModal()" class="text-gray-400 hover:text-white text-2xl font-bold px-2 py-1">&times;</button>
+            </div>
+
+            <!-- Main Work Area (Two Columns: Landscape on Left, Live Portrait on Right) -->
+            <div class="grid grid-cols-12 gap-5 items-start">
+                
+                <!-- Left: Landscape 16:9 Viewport with Interactive Draggable Crop Boxes (8 Cols) -->
+                <div class="col-span-12 lg:col-span-8 space-y-2">
+                    <div class="flex items-center justify-between text-xs font-bold text-gray-300 flex-wrap gap-2">
+                        <span class="flex items-center space-x-1.5">
+                            <span>Landscape Version (16:9 Source)</span>
+                            <span class="text-[10px] text-gray-500 font-normal hidden sm:inline">• Drag boxes to frame streamer & game</span>
+                        </span>
+                        
+                        <!-- Quick Position Presets -->
+                        <div class="flex items-center space-x-1 text-[11px]">
+                            <span class="text-gray-500 text-[10px]">Presets:</span>
+                            <button type="button" onclick="applyCropPreset('top-right')" class="px-2 py-0.5 rounded bg-gray-800 hover:bg-purple-950 text-gray-300 hover:text-purple-300 transition text-[10px]">↗ Top-R</button>
+                            <button type="button" onclick="applyCropPreset('top-left')" class="px-2 py-0.5 rounded bg-gray-800 hover:bg-purple-950 text-gray-300 hover:text-purple-300 transition text-[10px]">↖ Top-L</button>
+                            <button type="button" onclick="applyCropPreset('bottom-right')" class="px-2 py-0.5 rounded bg-gray-800 hover:bg-purple-950 text-gray-300 hover:text-purple-300 transition text-[10px]">↘ Bot-R</button>
+                        </div>
+                    </div>
+
+                    <!-- 16:9 Stage Container -->
+                    <div id="crop-stage" class="relative w-full aspect-video rounded-2xl overflow-hidden bg-black border-2 border-gray-800 select-none shadow-2xl">
+                        <!-- Video Element -->
+                        <video id="crop-video-element" class="w-full h-full object-contain pointer-events-none" playsinline muted crossorigin="anonymous"></video>
+
+                        <!-- Cyan Gameplay Box -->
+                        <div id="crop-box-game" class="absolute border-2 border-cyan-400 bg-cyan-400/20 rounded-lg cursor-move select-none transition-shadow hover:shadow-[0_0_15px_rgba(34,211,238,0.5)] z-10 flex flex-col justify-between p-1.5" style="left: 15%; top: 10%; width: 70%; height: 80%;">
+                            <span class="text-[10px] font-bold font-mono bg-cyan-950/90 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-700 w-fit pointer-events-none">🎮 Gameplay (Bottom)</span>
+                            <!-- Resize Handle -->
+                            <div class="crop-resize-handle absolute bottom-0 right-0 w-4 h-4 bg-cyan-400 rounded-br cursor-nwse-resize z-20" data-box="game"></div>
+                        </div>
+
+                        <!-- Purple Facecam Box -->
+                        <div id="crop-box-cam" class="absolute border-2 border-purple-500 bg-purple-500/25 rounded-lg cursor-move select-none transition-shadow hover:shadow-[0_0_15px_rgba(168,85,247,0.5)] z-20 flex flex-col justify-between p-1.5" style="left: 68%; top: 6%; width: 28%; height: 36%;">
+                            <span class="text-[10px] font-bold font-mono bg-purple-950/90 text-purple-300 px-1.5 py-0.5 rounded border border-purple-700 w-fit pointer-events-none">👤 Facecam (Top)</span>
+                            <!-- Resize Handle -->
+                            <div class="crop-resize-handle absolute bottom-0 right-0 w-4 h-4 bg-purple-500 rounded-br cursor-nwse-resize z-30" data-box="cam"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Portrait Version 9:16 Real-Time Live Preview (4 Cols) -->
+                <div class="col-span-12 lg:col-span-4 space-y-3 flex flex-col items-center">
+                    <div class="w-full flex items-center justify-between text-xs font-bold text-gray-300">
+                        <span>Portrait Version (Live 9:16)</span>
+                        <span class="text-[10px] text-[#53fc18] font-mono flex items-center space-x-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-[#53fc18] animate-ping"></span>
+                            <span>Live 60fps</span>
+                        </span>
+                    </div>
+
+                    <!-- 9:16 Canvas Preview -->
+                    <div class="relative rounded-2xl overflow-hidden border-2 border-gray-700 bg-black shadow-2xl">
+                        <canvas id="crop-portrait-canvas" width="360" height="640" class="w-[210px] sm:w-[230px] aspect-[9/16] block bg-black"></canvas>
+                        
+                        <!-- Watermark Overlay on Canvas Preview -->
+                        <div class="absolute bottom-6 inset-x-2 text-center pointer-events-none">
+                            <span id="canvas-preview-watermark" class="text-[9px] font-mono font-bold text-gray-400 bg-black/70 px-2 py-0.5 rounded border border-gray-800">KICK.COM / STREAMER</span>
+                        </div>
+                    </div>
+
+                    <!-- Layout Switcher Under Preview -->
+                    <div class="flex items-center space-x-2 bg-black/60 p-1 rounded-xl border border-gray-800 text-xs">
+                        <button type="button" id="btn-layout-split" onclick="setCropLayout('split')" class="px-3 py-1.5 rounded-lg font-bold bg-[#53fc18] text-black transition flex items-center space-x-1">
+                            <span>[ 日 ] Split 9:16</span>
+                        </button>
+                        <button type="button" id="btn-layout-full" onclick="setCropLayout('full')" class="px-3 py-1.5 rounded-lg font-medium text-gray-300 hover:text-white transition flex items-center space-x-1">
+                            <span>[ ▯ ] Full 9:16</span>
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Bottom: Video Timeline Trimmer, Title & Render Actions -->
+            <div class="border-t border-gray-800 pt-3 space-y-3">
+                
+                <!-- Video Timeline Controls -->
+                <div class="space-y-1.5">
+                    <div class="flex items-center justify-between text-xs text-gray-300">
+                        <div class="flex items-center space-x-2">
+                            <button type="button" onclick="toggleCropVideoPlay()" id="btn-crop-play" class="px-3 py-1 bg-gray-800 hover:bg-gray-700 rounded-lg font-semibold text-xs transition flex items-center space-x-1">
+                                <span>▶️ Play</span>
+                            </button>
+                            <span id="crop-time-display" class="font-mono text-gray-400">0:00 / 0:30</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="text-gray-400">Selected Trim:</span>
+                            <span id="crop-trim-duration" class="font-mono font-bold text-[#53fc18] bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">30s</span>
+                        </div>
+                    </div>
+
+                    <!-- Range Slider Inputs -->
+                    <div class="grid grid-cols-2 gap-4 items-center bg-black/40 p-2.5 rounded-xl border border-gray-800 text-xs">
+                        <div>
+                            <label class="text-[11px] text-gray-400 block mb-1">Trim Start: <span id="val-trim-start" class="font-mono text-white">0.0s</span></label>
+                            <input type="range" id="slider-trim-start" min="0" max="60" step="0.5" value="0" oninput="onTrimStartChanged()" class="w-full accent-[#53fc18]">
+                        </div>
+                        <div>
+                            <label class="text-[11px] text-gray-400 block mb-1">Trim End: <span id="val-trim-end" class="font-mono text-white">30.0s</span></label>
+                            <input type="range" id="slider-trim-end" min="0" max="60" step="0.5" value="30" oninput="onTrimEndChanged()" class="w-full accent-[#53fc18]">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Title & Hook Banner Input -->
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                    <div class="md:col-span-8">
+                        <input type="text" id="crop-clip-title" placeholder="Clip Title / Viral Hook Banner (e.g. ADIN ROSS WAS LEFT SPEECHLESS 💀)" class="w-full bg-black/60 border border-gray-700 rounded-xl px-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
+                    </div>
+                    <div class="md:col-span-4 flex items-center space-x-2 justify-end">
+                        <button type="button" onclick="closeVisualCropModal()" class="px-4 py-2.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold transition">
+                            Cancel
+                        </button>
+                        <button type="button" id="btn-crop-render" onclick="renderFromVisualCrop()" class="px-5 py-2.5 rounded-xl bg-[#53fc18] hover:bg-[#46d614] text-black font-extrabold text-xs transition flex items-center space-x-2 shadow-lg">
+                            <span>⚡ Render 9:16 Clip</span>
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+    </div>
+
     <script>
         let currentModalClipId = null;
         let currentModalStreamer = "adinross";
@@ -623,6 +771,423 @@
         let weekSchedule = [];
         let communitySort = 'date';
         let communityClipsData = [];
+
+        // ---------------------------------------------------------------------------
+        // Visual Clip Studio State & Interactive Dual-Crop Engine (Twitch-Style)
+        // ---------------------------------------------------------------------------
+        let cropState = {
+            clipId: null,
+            rawPath: null,
+            clipUrl: null,
+            streamer: 'adinross',
+            layout: 'split', // 'split' or 'full'
+            cam: { x: 0.68, y: 0.05, w: 0.28, h: 0.36 },
+            game: { x: 0.15, y: 0.10, w: 0.70, h: 0.80 },
+            startTime: 0,
+            endTime: 30,
+            duration: 30,
+            activeDrag: null,
+            animFrame: null
+        };
+
+        function setCropLayout(layout) {
+            cropState.layout = layout;
+            const btnSplit = document.getElementById('btn-layout-split');
+            const btnFull = document.getElementById('btn-layout-full');
+            const camBox = document.getElementById('crop-box-cam');
+            
+            if (layout === 'split') {
+                btnSplit.className = "px-3 py-1.5 rounded-lg font-bold bg-[#53fc18] text-black transition flex items-center space-x-1";
+                btnFull.className = "px-3 py-1.5 rounded-lg font-medium text-gray-300 hover:text-white transition flex items-center space-x-1";
+                if (camBox) camBox.classList.remove('hidden');
+            } else {
+                btnFull.className = "px-3 py-1.5 rounded-lg font-bold bg-[#53fc18] text-black transition flex items-center space-x-1";
+                btnSplit.className = "px-3 py-1.5 rounded-lg font-medium text-gray-300 hover:text-white transition flex items-center space-x-1";
+                if (camBox) camBox.classList.add('hidden');
+            }
+        }
+
+        function applyCropPreset(preset) {
+            if (preset === 'top-right') {
+                cropState.cam = { x: 0.68, y: 0.05, w: 0.28, h: 0.35 };
+                cropState.game = { x: 0.10, y: 0.10, w: 0.80, h: 0.80 };
+            } else if (preset === 'top-left') {
+                cropState.cam = { x: 0.04, y: 0.05, w: 0.28, h: 0.35 };
+                cropState.game = { x: 0.10, y: 0.10, w: 0.80, h: 0.80 };
+            } else if (preset === 'bottom-right') {
+                cropState.cam = { x: 0.68, y: 0.58, w: 0.28, h: 0.35 };
+                cropState.game = { x: 0.10, y: 0.05, w: 0.80, h: 0.80 };
+            }
+            updateCropBoxesDOM();
+            showToast(`Applied ${preset} camera preset`);
+        }
+
+        function updateCropBoxesDOM() {
+            const camEl = document.getElementById('crop-box-cam');
+            const gameEl = document.getElementById('crop-box-game');
+            if (camEl) {
+                camEl.style.left = (cropState.cam.x * 100) + '%';
+                camEl.style.top = (cropState.cam.y * 100) + '%';
+                camEl.style.width = (cropState.cam.w * 100) + '%';
+                camEl.style.height = (cropState.cam.h * 100) + '%';
+            }
+            if (gameEl) {
+                gameEl.style.left = (cropState.game.x * 100) + '%';
+                gameEl.style.top = (cropState.game.y * 100) + '%';
+                gameEl.style.width = (cropState.game.w * 100) + '%';
+                gameEl.style.height = (cropState.game.h * 100) + '%';
+            }
+        }
+
+        function initCropDragHandlers() {
+            const stage = document.getElementById('crop-stage');
+            if (!stage) return;
+
+            function onPointerDown(e, boxType, isResize) {
+                e.preventDefault();
+                e.stopPropagation();
+                const rect = stage.getBoundingClientRect();
+                cropState.activeDrag = {
+                    box: boxType,
+                    action: isResize ? 'resize' : 'move',
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    stageWidth: rect.width || 800,
+                    stageHeight: rect.height || 450,
+                    initBox: { ...cropState[boxType] }
+                };
+            }
+
+            const camBox = document.getElementById('crop-box-cam');
+            const gameBox = document.getElementById('crop-box-game');
+
+            if (camBox) {
+                camBox.addEventListener('mousedown', (e) => {
+                    if (e.target.classList.contains('crop-resize-handle')) {
+                        onPointerDown(e, 'cam', true);
+                    } else {
+                        onPointerDown(e, 'cam', false);
+                    }
+                });
+            }
+
+            if (gameBox) {
+                gameBox.addEventListener('mousedown', (e) => {
+                    if (e.target.classList.contains('crop-resize-handle')) {
+                        onPointerDown(e, 'game', true);
+                    } else {
+                        onPointerDown(e, 'game', false);
+                    }
+                });
+            }
+
+            window.addEventListener('mousemove', (e) => {
+                if (!cropState.activeDrag) return;
+                const { box, action, startX, startY, stageWidth, stageHeight, initBox } = cropState.activeDrag;
+                const dx = (e.clientX - startX) / stageWidth;
+                const dy = (e.clientY - startY) / stageHeight;
+
+                if (action === 'move') {
+                    let newX = Math.max(0, Math.min(1 - initBox.w, initBox.x + dx));
+                    let newY = Math.max(0, Math.min(1 - initBox.h, initBox.y + dy));
+                    cropState[box].x = newX;
+                    cropState[box].y = newY;
+                } else if (action === 'resize') {
+                    let newW = Math.max(0.1, Math.min(1 - initBox.x, initBox.w + dx));
+                    let newH = Math.max(0.1, Math.min(1 - initBox.y, initBox.h + dy));
+                    cropState[box].w = newW;
+                    cropState[box].h = newH;
+                }
+                updateCropBoxesDOM();
+            });
+
+            window.addEventListener('mouseup', () => {
+                cropState.activeDrag = null;
+            });
+        }
+
+        function startCropRenderLoop() {
+            const video = document.getElementById('crop-video-element');
+            const canvas = document.getElementById('crop-portrait-canvas');
+            if (!canvas || !video) return;
+            const ctx = canvas.getContext('2d');
+
+            function renderFrame() {
+                if (document.getElementById('visual-crop-modal').classList.contains('hidden')) {
+                    return;
+                }
+
+                const cw = video.videoWidth || 1920;
+                const ch = video.videoHeight || 1080;
+
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(0, 0, 360, 640);
+
+                if (video.readyState >= 2) {
+                    if (cropState.layout === 'split') {
+                        // Top: Cam
+                        const camSX = cropState.cam.x * cw;
+                        const camSY = cropState.cam.y * ch;
+                        const camSW = cropState.cam.w * cw;
+                        const camSH = cropState.cam.h * ch;
+                        ctx.drawImage(video, camSX, camSY, camSW, camSH, 0, 0, 360, 318);
+
+                        // Divider Line
+                        ctx.fillStyle = '#101827';
+                        ctx.fillRect(0, 318, 360, 4);
+
+                        // Bottom: Gameplay
+                        const gameSX = cropState.game.x * cw;
+                        const gameSY = cropState.game.y * ch;
+                        const gameSW = cropState.game.w * cw;
+                        const gameSH = cropState.game.h * ch;
+                        ctx.drawImage(video, gameSX, gameSY, gameSW, gameSH, 0, 322, 360, 318);
+                    } else {
+                        // Full layout
+                        const gameSX = cropState.game.x * cw;
+                        const gameSY = cropState.game.y * ch;
+                        const gameSW = cropState.game.w * cw;
+                        const gameSH = cropState.game.h * ch;
+                        ctx.drawImage(video, gameSX, gameSY, gameSW, gameSH, 0, 0, 360, 640);
+                    }
+                }
+
+                // Render Live Hook Banner Overlay Preview
+                const titleInput = document.getElementById('crop-clip-title');
+                const titleText = titleInput ? titleInput.value.trim() : '';
+                if (titleText) {
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                    ctx.fillRect(10, 15, 340, 34);
+                    ctx.strokeStyle = '#374151';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(10, 15, 340, 34);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 11px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(titleText.slice(0, 44), 180, 36);
+                }
+
+                // Timeline Playback update
+                if (!video.paused && !video.ended) {
+                    if (video.currentTime >= cropState.endTime) {
+                        video.currentTime = cropState.startTime;
+                    }
+                    updateTimeDisplay(video.currentTime);
+                }
+
+                cropState.animFrame = requestAnimationFrame(renderFrame);
+            }
+
+            cropState.animFrame = requestAnimationFrame(renderFrame);
+        }
+
+        function updateTimeDisplay(cur) {
+            const dur = cropState.duration || 30;
+            const curM = Math.floor(cur / 60);
+            const curS = String(Math.floor(cur % 60)).padStart(2, '0');
+            const durM = Math.floor(dur / 60);
+            const durS = String(Math.floor(dur % 60)).padStart(2, '0');
+            const el = document.getElementById('crop-time-display');
+            if (el) el.innerText = `${curM}:${curS} / ${durM}:${durS}`;
+        }
+
+        function toggleCropVideoPlay() {
+            const video = document.getElementById('crop-video-element');
+            const btn = document.getElementById('btn-crop-play');
+            if (!video) return;
+            if (video.paused) {
+                video.play();
+                if (btn) btn.innerHTML = `<span>⏸️ Pause</span>`;
+            } else {
+                video.pause();
+                if (btn) btn.innerHTML = `<span>▶️ Play</span>`;
+            }
+        }
+
+        function onTrimStartChanged() {
+            const val = parseFloat(document.getElementById('slider-trim-start').value);
+            cropState.startTime = val;
+            const endSlider = document.getElementById('slider-trim-end');
+            if (cropState.endTime <= val + 2) {
+                cropState.endTime = Math.min(cropState.duration, val + 5);
+                endSlider.value = cropState.endTime;
+            }
+            document.getElementById('val-trim-start').innerText = val.toFixed(1) + 's';
+            document.getElementById('val-trim-end').innerText = cropState.endTime.toFixed(1) + 's';
+            document.getElementById('crop-trim-duration').innerText = (cropState.endTime - val).toFixed(1) + 's';
+
+            const video = document.getElementById('crop-video-element');
+            if (video) video.currentTime = val;
+        }
+
+        function onTrimEndChanged() {
+            const val = parseFloat(document.getElementById('slider-trim-end').value);
+            cropState.endTime = val;
+            const startSlider = document.getElementById('slider-trim-start');
+            if (val <= cropState.startTime + 2) {
+                cropState.startTime = Math.max(0, val - 5);
+                startSlider.value = cropState.startTime;
+            }
+            document.getElementById('val-trim-start').innerText = cropState.startTime.toFixed(1) + 's';
+            document.getElementById('val-trim-end').innerText = val.toFixed(1) + 's';
+            document.getElementById('crop-trim-duration').innerText = (val - cropState.startTime).toFixed(1) + 's';
+
+            const video = document.getElementById('crop-video-element');
+            if (video) video.currentTime = val;
+        }
+
+        function closeVisualCropModal() {
+            const modal = document.getElementById('visual-crop-modal');
+            if (modal) modal.classList.add('hidden');
+            const video = document.getElementById('crop-video-element');
+            if (video) { video.pause(); video.src = ''; }
+            if (cropState.animFrame) cancelAnimationFrame(cropState.animFrame);
+        }
+
+        async function openVisualCropForClip(clipId, event) {
+            if (event) event.stopPropagation();
+            try {
+                showToast("Loading clip into Visual Studio...");
+                const res = await fetch(`/api/clips/${clipId}`);
+                if (!res.ok) throw new Error("Could not load clip data");
+                const clip = await res.json();
+
+                cropState.clipId = clipId;
+                cropState.streamer = clip.streamer || 'streamer';
+                cropState.rawPath = clip.raw_path;
+                cropState.clipUrl = null;
+
+                const video = document.getElementById('crop-video-element');
+                // Use raw=true so we edit the uncropped 16:9 source!
+                video.src = `/video/${clipId}?raw=true`;
+                video.load();
+
+                document.getElementById('crop-clip-title').value = clip.hook_banner || clip.title || '';
+                document.getElementById('canvas-preview-watermark').innerText = `KICK.COM / ${cropState.streamer.toUpperCase()}`;
+
+                video.onloadedmetadata = () => {
+                    const dur = Math.max(10, Math.floor(video.duration || 30));
+                    cropState.duration = dur;
+                    cropState.startTime = 0;
+                    cropState.endTime = Math.min(dur, 30);
+
+                    const sStart = document.getElementById('slider-trim-start');
+                    const sEnd = document.getElementById('slider-trim-end');
+                    sStart.max = dur;
+                    sStart.value = 0;
+                    sEnd.max = dur;
+                    sEnd.value = cropState.endTime;
+
+                    document.getElementById('val-trim-start').innerText = '0.0s';
+                    document.getElementById('val-trim-end').innerText = cropState.endTime.toFixed(1) + 's';
+                    document.getElementById('crop-trim-duration').innerText = cropState.endTime.toFixed(1) + 's';
+                    updateTimeDisplay(0);
+                    video.play().catch(() => {});
+                };
+
+                updateCropBoxesDOM();
+                document.getElementById('visual-crop-modal').classList.remove('hidden');
+                startCropRenderLoop();
+            } catch (err) {
+                console.error(err);
+                showToast("Error opening Visual Studio: " + err.message);
+            }
+        }
+
+        function openVisualCropForKick(clipId, encodedUrl, encodedTitle, duration) {
+            const streamerSelect = document.getElementById('active-target-streamer');
+            const streamer = streamerSelect && streamerSelect.value ? streamerSelect.value : 'streamer';
+            const clipUrl = decodeURIComponent(encodedUrl);
+            const title = decodeURIComponent(encodedTitle);
+
+            cropState.clipId = null;
+            cropState.rawPath = null;
+            cropState.clipUrl = clipUrl;
+            cropState.streamer = streamer;
+
+            const video = document.getElementById('crop-video-element');
+            video.src = clipUrl;
+            video.load();
+
+            document.getElementById('crop-clip-title').value = title || `${streamer.toUpperCase()} WAS SPEECHLESS 💀`;
+            document.getElementById('canvas-preview-watermark').innerText = `KICK.COM / ${streamer.toUpperCase()}`;
+
+            const dur = Math.max(10, Math.floor(duration || 30));
+            cropState.duration = dur;
+            cropState.startTime = 0;
+            cropState.endTime = Math.min(dur, 30);
+
+            const sStart = document.getElementById('slider-trim-start');
+            const sEnd = document.getElementById('slider-trim-end');
+            sStart.max = dur;
+            sStart.value = 0;
+            sEnd.max = dur;
+            sEnd.value = cropState.endTime;
+
+            document.getElementById('val-trim-start').innerText = '0.0s';
+            document.getElementById('val-trim-end').innerText = cropState.endTime.toFixed(1) + 's';
+            document.getElementById('crop-trim-duration').innerText = cropState.endTime.toFixed(1) + 's';
+
+            updateCropBoxesDOM();
+            document.getElementById('visual-crop-modal').classList.remove('hidden');
+            startCropRenderLoop();
+            video.play().catch(() => {});
+        }
+
+        function openVisualCropForLiveStream() {
+            if (allClipsData && allClipsData.length > 0) {
+                openVisualCropForClip(allClipsData[0].id);
+            } else {
+                showToast("Capture a live slice (Sweet Spot 25s) first to edit in Visual Studio!");
+            }
+        }
+
+        async function renderFromVisualCrop() {
+            const btn = document.getElementById('btn-crop-render');
+            const title = document.getElementById('crop-clip-title').value.trim();
+            const originalText = btn.innerHTML;
+
+            btn.disabled = true;
+            btn.innerHTML = `<span class="animate-spin">⏳</span><span>Rendering 9:16 Video...</span>`;
+            showToast("🚀 Rendering custom dual-crop 9:16 vertical video with NVENC...");
+
+            try {
+                const res = await fetch('/api/editor/render', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        clip_id: cropState.clipId,
+                        raw_path: cropState.rawPath,
+                        clip_url: cropState.clipUrl,
+                        streamer: cropState.streamer,
+                        title: title || `${cropState.streamer.toUpperCase()} MOMENT`,
+                        hook_banner: title || `${cropState.streamer.toUpperCase()} WAS SPEECHLESS 💀`,
+                        start_time: cropState.startTime,
+                        end_time: cropState.endTime,
+                        layout: cropState.layout,
+                        cam_crop: cropState.cam,
+                        game_crop: cropState.game,
+                        caption_position: "top"
+                    })
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    showToast("✅ Custom 9:16 video rendered! Check Studio Clips below.");
+                    closeVisualCropModal();
+                    setTimeout(fetchClips, 3000);
+                    setTimeout(fetchNotifications, 2000);
+                } else {
+                    alert("Error rendering clip: " + (data.detail || "Server error"));
+                }
+            } catch (err) {
+                console.error(err);
+                showToast("Render error: " + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        }
 
         function setCommunitySort(sort) {
             communitySort = sort;
@@ -720,13 +1285,23 @@
 
                         <div>
                             ${c.already_edited ? `
-                                <button disabled class="w-full py-2 rounded-xl bg-gray-800/80 text-emerald-400 text-xs font-semibold border border-emerald-900 flex items-center justify-center space-x-1 cursor-default">
-                                    <span>✅ In Studio Clips</span>
-                                </button>
+                                <div class="grid grid-cols-12 gap-1.5">
+                                    <button disabled class="col-span-8 py-2 rounded-xl bg-gray-800/80 text-emerald-400 text-xs font-semibold border border-emerald-900 flex items-center justify-center space-x-1 cursor-default">
+                                        <span>✅ In Studio</span>
+                                    </button>
+                                    <button onclick="openVisualCropForKick('${safeId}', '${safeUrl}', '${safeTitle}', ${c.duration || 30})" title="Custom 9:16 Dual Crop" class="col-span-4 py-2 rounded-xl bg-purple-950/80 hover:bg-purple-900 text-purple-300 border border-purple-800 text-xs font-bold transition flex items-center justify-center space-x-1">
+                                        <span>✂️ Crop</span>
+                                    </button>
+                                </div>
                             ` : `
-                                <button onclick="convertKickClip('${safeId}', '${safeUrl}', '${safeTitle}', ${c.duration || 30}, this)" class="w-full py-2 rounded-xl bg-[#53fc18] hover:bg-[#46d614] text-black text-xs font-extrabold transition flex items-center justify-center space-x-1.5 shadow">
-                                    <span>⚡ AI Edit to 9:16</span>
-                                </button>
+                                <div class="grid grid-cols-12 gap-1.5">
+                                    <button onclick="convertKickClip('${safeId}', '${safeUrl}', '${safeTitle}', ${c.duration || 30}, this)" class="col-span-8 py-2 rounded-xl bg-[#53fc18] hover:bg-[#46d614] text-black text-xs font-extrabold transition flex items-center justify-center space-x-1 shadow">
+                                        <span>⚡ AI Edit</span>
+                                    </button>
+                                    <button onclick="openVisualCropForKick('${safeId}', '${safeUrl}', '${safeTitle}', ${c.duration || 30})" title="Custom 9:16 Dual Crop" class="col-span-4 py-2 rounded-xl bg-purple-950/80 hover:bg-purple-900 text-purple-300 border border-purple-800 text-xs font-bold transition flex items-center justify-center space-x-1">
+                                        <span>✂️ Crop</span>
+                                    </button>
+                                </div>
                             `}
                         </div>
                     </div>
@@ -1170,6 +1745,9 @@
                                     <span>⬇️ Download</span>
                                 </a>
                             ` : ''}
+                            <button onclick="openVisualCropForClip(${c.id}, event)" title="Open Twitch-style dual crop & timeline editor" class="px-2 py-1 rounded bg-purple-950/80 hover:bg-purple-900 text-purple-300 border border-purple-800 text-[11px] font-bold transition flex items-center space-x-1">
+                                <span>✂️ Crop</span>
+                            </button>
                             <button onclick="deleteClipDirect(${c.id}, event)" title="Permanently delete clip & MP4 from D: drive" class="p-1 rounded bg-gray-900 hover:bg-red-950 hover:text-red-400 text-gray-500 border border-gray-800 transition">
                                 🗑️
                             </button>
@@ -2070,6 +2648,7 @@
         }
 
         // Init
+        initCropDragHandlers();
         fetchRates();
         fetchStats();
         fetchStreamers();

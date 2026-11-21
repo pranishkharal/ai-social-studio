@@ -16,7 +16,7 @@ from database import (
     get_all_streamers, get_all_clips, get_recent_logs, 
     get_connection, log_event, update_streamer_status,
     get_notifications, mark_notification_read, mark_all_notifications_read,
-    update_clip_approval, toggle_streamer_monitoring, delete_clip, add_notification
+    update_clip_approval, toggle_streamer_monitoring, delete_clip, add_notification, add_clip
 )
 from ai_story_engine import PRD_CATEGORIES
 from kick_monitor import KickMonitor
@@ -364,13 +364,13 @@ async def scrub_stream(req: ScrubReq):
     return {"status": "success" if success else "failed"}
 
 @app.api_route("/video/{clip_id}", methods=["GET", "HEAD"])
-async def stream_video(clip_id: int, download: bool = False):
+async def stream_video(clip_id: int, download: bool = False, raw: bool = False):
     conn = get_connection()
     row = conn.execute("SELECT streamer, edited_path, raw_path FROM clips WHERE id = ?", (clip_id,)).fetchone()
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail="Video not found")
-    path = row["edited_path"] or row["raw_path"]
+    path = (row["raw_path"] if raw else row["edited_path"]) or row["raw_path"] or row["edited_path"]
     if not path or not os.path.exists(path):
         raise HTTPException(status_code=404, detail="File missing on disk")
     filename = os.path.basename(path)
@@ -572,4 +572,122 @@ async def convert_kick_clip(req: ConvertKickClipReq, background_tasks: Backgroun
 
     background_tasks.add_task(run_conversion)
     return {"status": "started", "message": f"Downloading and converting Kick clip '{req.title or ''}' into 9:16 vertical format"}
+
+
+# ---------------------------------------------------------------------------
+# Visual Clip Studio (Interactive Dual-Crop Facecam + Gameplay & 9:16 Preview)
+# ---------------------------------------------------------------------------
+
+class VisualEditorRenderReq(BaseModel):
+    clip_id: Optional[int] = None
+    raw_path: Optional[str] = None
+    clip_url: Optional[str] = None
+    streamer: str = "streamer"
+    title: Optional[str] = None
+    hook_banner: Optional[str] = None
+    start_time: float = 0.0
+    end_time: Optional[float] = None
+    layout: str = "split" # "split" or "full"
+    cam_crop: Optional[dict] = None # {x: 0.65, y: 0.05, w: 0.3, h: 0.35}
+    game_crop: Optional[dict] = None # {x: 0.1, y: 0.1, w: 0.8, h: 0.8}
+    caption_position: str = "top"
+
+
+@app.post("/api/editor/render")
+async def visual_editor_render(req: VisualEditorRenderReq, background_tasks: BackgroundTasks):
+    """
+    Renders custom visual crop (Twitch-style dual-box split or full layout)
+    with custom start/end trim, hook banner, and saves ready-to-download 9:16 vertical video.
+    """
+    safe_streamer = req.streamer.strip().lower()
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    src_file = None
+
+    if req.clip_id:
+        conn = get_connection()
+        row = conn.execute("SELECT raw_path, edited_path, streamer, hook_banner, title FROM clips WHERE id = ?", (req.clip_id,)).fetchone()
+        conn.close()
+        if row:
+            src_file = row["raw_path"] or row["edited_path"]
+            if not req.streamer or req.streamer == "streamer":
+                safe_streamer = row["streamer"] or safe_streamer
+            if not req.title:
+                req.title = row["title"]
+            if not req.hook_banner:
+                req.hook_banner = row["hook_banner"]
+
+    elif req.raw_path and os.path.exists(req.raw_path):
+        src_file = req.raw_path
+
+    elif req.clip_url:
+        import subprocess
+        safe_id = f"custom_{stamp}"
+        downloaded_raw = str(CLIPS_DIR / f"{safe_streamer}_{safe_id}_raw.mp4")
+        dur_limit = min(int((req.end_time or 45) - req.start_time + 10), 120)
+        cmd = ["ffmpeg", "-y", "-i", req.clip_url, "-t", str(dur_limit), "-c", "copy", downloaded_raw]
+        subprocess.run(cmd, capture_output=True, timeout=120)
+        if os.path.exists(downloaded_raw) and os.path.getsize(downloaded_raw) > 1000:
+            src_file = downloaded_raw
+
+    if not src_file or not os.path.exists(src_file):
+        raise HTTPException(status_code=400, detail="Source video could not be resolved or downloaded")
+
+    out_file = str(EDITED_DIR / f"{safe_streamer}_custom_916_{stamp}.mp4")
+    custom_crop = {
+        "cam": req.cam_crop or {"x": 0.65, "y": 0.05, "w": 0.3, "h": 0.35},
+        "game": req.game_crop or {"x": 0.1, "y": 0.1, "w": 0.8, "h": 0.8}
+    }
+    banner_text = req.hook_banner or req.title or f"{safe_streamer.upper()} LIVE MOMENT"
+
+    def run_custom_render():
+        try:
+            from clip_editor import ClipEditor
+            editor = ClipEditor()
+            log_event("INFO", "VisualEditor", f"Rendering custom {req.layout} crop for {safe_streamer} (trim {req.start_time:.1f}s - {req.end_time or 0:.1f}s)")
+            
+            editor.edit_clip(
+                raw_clip_path=src_file,
+                output_path=out_file,
+                streamer=safe_streamer,
+                layout=req.layout,
+                custom_crop=custom_crop,
+                trim_start=req.start_time if req.start_time > 0 else None,
+                trim_end=req.end_time if req.end_time and req.end_time > req.start_time else None,
+                hook_banner=banner_text,
+                caption_position=req.caption_position or "top",
+                silence_trim=False,
+                auto_captions=False,
+                mirror=True,
+                hdr_sharpness=True
+            )
+
+            dur = (req.end_time - req.start_time) if (req.end_time and req.end_time > req.start_time) else 30.0
+            new_clip_id = add_clip({
+                "streamer": safe_streamer,
+                "title": req.title or banner_text,
+                "hook_banner": banner_text,
+                "caption": f"the moment {safe_streamer} was SPEECHLESS after this happened live on Kick ❤️‍🩹😭 #{safe_streamer} #kick #fyp",
+                "tags": f"#{safe_streamer} #kick #fyp #viral",
+                "category": "Viral Potential",
+                "approval_status": "approved",
+                "status": "ready_to_upload",
+                "raw_path": src_file,
+                "edited_path": out_file,
+                "duration": dur,
+                "ai_score": 95
+            })
+
+            add_notification(
+                title=f"🎬 9:16 Custom Crop Ready: {req.title or banner_text}",
+                message=f"Custom {req.layout} 9:16 vertical video rendered successfully! Ready to download or publish.",
+                notif_type="highlight_ready",
+                streamer=safe_streamer,
+                clip_id=new_clip_id
+            )
+            log_event("INFO", "VisualEditor", f"Custom 9:16 render finished! Saved as Clip #{new_clip_id}")
+        except Exception as e:
+            log_event("ERROR", "VisualEditor", f"Custom render failed: {e}")
+
+    background_tasks.add_task(run_custom_render)
+    return {"status": "started", "message": f"Rendering custom 9:16 vertical video for {safe_streamer}..."}
 

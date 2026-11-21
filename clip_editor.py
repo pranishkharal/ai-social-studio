@@ -383,7 +383,9 @@ class ClipEditor:
                   encoder: str = None, tracking_target: str = None,
                   voiceover_path: str = None, voiceover_at: float = 0.0,
                   theme: str = None, meme_mood: str = None,
-                  meme_at: float = None) -> str:
+                  meme_at: float = None,
+                  custom_crop: dict = None, trim_start: float = None,
+                  trim_end: float = None) -> str:
         """
         Converts horizontal stream clip to 9:16 vertical TikTok clip (1080x1920)
         Adheres 100% to Official Kick Clipping Program Rules & prxno standard:
@@ -715,14 +717,49 @@ class ClipEditor:
             # Full-width Kick Watermark bar placed flush right above TikTok username (y: 1530)
             wm_y = 1420
         elif layout == "split":
-            filter_complex.append(
-                f"{source_label}split=2[cam][game];"
-                f"[cam]crop=iw*0.5:ih*0.6:0:0,scale={VIDEO_WIDTH}:{split_divider_y}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{split_divider_y}[top];"
-                f"[game]crop=iw:ih*0.7:0:ih*0.3,scale={VIDEO_WIDTH}:{VIDEO_HEIGHT - split_divider_y}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{VIDEO_HEIGHT - split_divider_y}[bottom];"
-                f"[top][bottom]vstack[base]"
-            )
+            if custom_crop and ("cam" in custom_crop or "game" in custom_crop):
+                cc = custom_crop.get("cam", {"x": 0.65, "y": 0.05, "w": 0.3, "h": 0.35})
+                cg = custom_crop.get("game", {"x": 0.1, "y": 0.1, "w": 0.8, "h": 0.8})
+                cx = max(0.0, min(0.95, float(cc.get("x", 0.65))))
+                cy = max(0.0, min(0.95, float(cc.get("y", 0.05))))
+                cw = max(0.05, min(1.0 - cx, float(cc.get("w", 0.3))))
+                ch = max(0.05, min(1.0 - cy, float(cc.get("h", 0.35))))
+
+                gx = max(0.0, min(0.95, float(cg.get("x", 0.1))))
+                gy = max(0.0, min(0.95, float(cg.get("y", 0.1))))
+                gw = max(0.05, min(1.0 - gx, float(cg.get("w", 0.8))))
+                gh = max(0.05, min(1.0 - gy, float(cg.get("h", 0.8))))
+
+                filter_complex.append(
+                    f"{source_label}split=2[cam_in][game_in];"
+                    f"[cam_in]crop=iw*{cw:.4f}:ih*{ch:.4f}:iw*{cx:.4f}:ih*{cy:.4f},scale={VIDEO_WIDTH}:{split_divider_y}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{split_divider_y}[top];"
+                    f"[game_in]crop=iw*{gw:.4f}:ih*{gh:.4f}:iw*{gx:.4f}:ih*{gy:.4f},scale={VIDEO_WIDTH}:{VIDEO_HEIGHT - split_divider_y}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{VIDEO_HEIGHT - split_divider_y}[bottom];"
+                    f"[top][bottom]vstack[base]"
+                )
+            else:
+                filter_complex.append(
+                    f"{source_label}split=2[cam][game];"
+                    f"[cam]crop=iw*0.5:ih*0.6:0:0,scale={VIDEO_WIDTH}:{split_divider_y}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{split_divider_y}[top];"
+                    f"[game]crop=iw:ih*0.7:0:ih*0.3,scale={VIDEO_WIDTH}:{VIDEO_HEIGHT - split_divider_y}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{VIDEO_HEIGHT - split_divider_y}[bottom];"
+                    f"[top][bottom]vstack[base]"
+                )
             # Watermark flush across the middle divider seam
             wm_y = split_divider_y - 28
+        elif layout in ("full", "custom_full"):
+            if custom_crop and ("game" in custom_crop or "cam" in custom_crop):
+                cg = custom_crop.get("game") or custom_crop.get("cam")
+                gx = max(0.0, min(0.95, float(cg.get("x", 0.2))))
+                gy = max(0.0, min(0.95, float(cg.get("y", 0.0))))
+                gw = max(0.05, min(1.0 - gx, float(cg.get("w", 0.5625))))
+                gh = max(0.05, min(1.0 - gy, float(cg.get("h", 1.0))))
+                filter_complex.append(
+                    f"{source_label}crop=iw*{gw:.4f}:ih*{gh:.4f}:iw*{gx:.4f}:ih*{gy:.4f},scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{VIDEO_HEIGHT}[base]"
+                )
+            else:
+                filter_complex.append(
+                    f"{source_label}scale=-1:{VIDEO_HEIGHT}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{VIDEO_HEIGHT}[base]"
+                )
+            wm_y = 1420
         elif layout == "blurred_backdrop":
             filter_complex.append(
                 f"{source_label}split=2[bg_raw][fg_raw];"
@@ -1007,6 +1044,10 @@ class ClipEditor:
             if vaapi_input:
                 from encoder import VAAPI_INPUT_ARGS
                 cmd += VAAPI_INPUT_ARGS
+            if trim_start is not None and trim_start > 0:
+                cmd += ["-ss", f"{trim_start:.3f}"]
+            if trim_end is not None and trim_end > (trim_start or 0):
+                cmd += ["-to", f"{trim_end:.3f}"]
             cmd += ["-i", source_path]
             if broll_path:
                 # Input 1: B-roll, looped so it always covers its window.
