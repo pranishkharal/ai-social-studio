@@ -54,11 +54,7 @@
         <!-- Telemetry, Notifications & Rates Indicator -->
         <div class="flex items-center space-x-4">
             
-            <!-- Program Rate Info -->
-            <div class="hidden md:flex items-center space-x-2 bg-emerald-950/60 border border-emerald-800/80 px-3 py-1.5 rounded-lg text-xs">
-                <span class="text-gray-300">Kick Program:</span>
-                <span class="font-bold text-[#53fc18] font-mono">$40/100K • $400/1M</span>
-            </div>
+
 
             <!-- Install Web App PWA Button -->
             <button id="pwa-install-btn" onclick="installPWA()" class="hidden items-center space-x-1.5 bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-[#53fc18] font-bold px-3 py-1.5 rounded-lg text-xs transition shadow">
@@ -160,21 +156,7 @@
                     <select id="active-target-streamer" onchange="onStreamerChanged()" class="w-full bg-black/60 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white font-bold focus:outline-none focus:border-[#53fc18]">
                     </select>
 
-                    <!-- Creator Rate Pill -->
-                    <div id="creator-rate-pill" class="bg-black/50 border border-gray-800 p-3 rounded-xl flex items-center justify-between text-xs">
-                        <span class="text-gray-400">Discord Command: <b id="pill-cmd" class="text-[#53fc18] font-mono">/adinross</b></span>
-                        <span class="text-gray-300">Rate: <b id="pill-rate" class="text-emerald-400 font-mono">$40 / 100K</b></span>
-                    </div>
 
-                    <!-- Clip Permission Badge (gta6-clipper feature 13) -->
-                    <div id="clip-rule-badge" class="bg-black/50 border border-gray-800 p-3 rounded-xl text-xs hidden">
-                        <div class="flex items-center justify-between">
-                            <span class="text-gray-400">Clipping permission:</span>
-                            <span id="clip-rule-value" class="font-bold font-mono px-2 py-0.5 rounded border">unknown</span>
-                        </div>
-                        <div id="clip-rule-note" class="text-[11px] text-gray-400 mt-1.5"></div>
-                        <a id="clip-rule-source" href="#" target="_blank" rel="noopener" class="hidden text-[11px] text-[#53fc18] hover:underline mt-1 inline-block">Source ↗</a>
-                    </div>
 
                     <!-- Fast Instant Clip Buttons (15s, 25s, 35s) -->
                     <div class="pt-2">
@@ -381,185 +363,6 @@
 
         </div>
 
-        <!-- EARNINGS TRACKER (Kick Clipping Program) -->
-        <div class="glass-panel rounded-2xl p-5 space-y-4">
-            <div class="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                    <h2 class="text-lg font-extrabold flex items-center space-x-2">
-                        <span>💰 Earnings Tracker</span>
-                        <span class="text-xs px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">Kick Program</span>
-                    </h2>
-                    <p class="text-xs text-gray-400 mt-0.5">Estimated earnings from submitted links — views ÷ 100K × creator CPM rate.</p>
-                </div>
-                <button onclick="fetchEarnings()" class="px-3 py-1.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-xs font-semibold text-gray-200 border border-gray-700 transition">Refresh</button>
-            </div>
-
-            <div id="earnings-error" class="hidden text-xs text-amber-400 bg-amber-950/40 border border-amber-800/60 rounded-xl px-3 py-2"></div>
-
-            <!-- Totals -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
-                <div class="bg-black/50 border border-gray-800 rounded-xl p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-gray-400">Total Earnings</div>
-                    <div id="earn-total" class="text-xl font-extrabold text-[#53fc18] font-mono">$0.00</div>
-                </div>
-                <div class="bg-black/50 border border-gray-800 rounded-xl p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-gray-400">Total Views</div>
-                    <div id="earn-views" class="text-xl font-extrabold text-white font-mono">0</div>
-                </div>
-                <div class="bg-black/50 border border-gray-800 rounded-xl p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-gray-400">Total Likes</div>
-                    <div id="earn-likes" class="text-xl font-extrabold text-white font-mono">0</div>
-                </div>
-                <div class="bg-black/50 border border-gray-800 rounded-xl p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-gray-400">Submissions</div>
-                    <div id="earn-count" class="text-xl font-extrabold text-white font-mono">0</div>
-                </div>
-            </div>
-
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <!-- Per-streamer breakdown -->
-                <div class="bg-black/40 border border-gray-800 rounded-xl p-3">
-                    <div class="text-xs font-bold text-gray-300 mb-2">Earnings by Streamer</div>
-                    <div id="earn-by-streamer" class="text-xs text-gray-400">No submissions yet.</div>
-                </div>
-                <!-- Per-platform breakdown -->
-                <div class="bg-black/40 border border-gray-800 rounded-xl p-3">
-                    <div class="text-xs font-bold text-gray-300 mb-2">Earnings by Platform</div>
-                    <div id="earn-by-platform" class="text-xs text-gray-400">No submissions yet.</div>
-                </div>
-            </div>
-
-            <!-- Submissions list -->
-            <div class="bg-black/40 border border-gray-800 rounded-xl p-3">
-                <div class="text-xs font-bold text-gray-300 mb-2">Recent Submissions</div>
-                <div id="earn-submissions" class="text-xs text-gray-400 max-h-48 overflow-y-auto custom-scroll">No submissions yet.</div>
-            </div>
-
-            <!-- Record submission + update views -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <form id="record-submission-form" class="bg-black/40 border border-gray-800 rounded-xl p-3 space-y-2">
-                    <div class="text-xs font-bold text-gray-300">Record a Submission</div>
-                    <div class="grid grid-cols-2 gap-2">
-                        <input id="sub-clip-id" type="number" placeholder="Clip ID" class="bg-black/60 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
-                        <select id="sub-platform" class="bg-black/60 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[#53fc18]">
-                            <option value="tiktok">TikTok</option>
-                            <option value="youtube">YouTube Shorts</option>
-                            <option value="instagram">Instagram Reels</option>
-                        </select>
-                    </div>
-                    <input id="sub-video-url" type="text" placeholder="Posted video URL (https://...)" class="w-full bg-black/60 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
-                    <input id="sub-streamer" type="text" placeholder="Streamer (optional — defaults to the clip's streamer)" class="w-full bg-black/60 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
-                    <button type="submit" class="w-full bg-[#53fc18] hover:bg-[#46d614] text-black font-bold py-1.5 rounded-lg text-xs transition">Record Submission</button>
-                </form>
-
-                <form id="update-views-form" class="bg-black/40 border border-gray-800 rounded-xl p-3 space-y-2">
-                    <div class="text-xs font-bold text-gray-300">Update Views / Likes</div>
-                    <div class="grid grid-cols-3 gap-2">
-                        <input id="views-sub-id" type="number" placeholder="Submission ID" class="bg-black/60 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
-                        <input id="views-count" type="number" placeholder="Views" class="bg-black/60 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
-                        <input id="likes-count" type="number" placeholder="Likes (opt.)" class="bg-black/60 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
-                    </div>
-                    <p class="text-[10px] text-gray-500">Leave Views blank for a YouTube link to try an automatic view-count pull.</p>
-                    <button type="submit" class="w-full bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-[#53fc18] font-bold py-1.5 rounded-lg text-xs transition">Update Views</button>
-                </form>
-            </div>
-        </div>
-
-        <!-- UPLOAD QUEUE / SCHEDULER -->
-        <div class="glass-panel rounded-2xl p-5 space-y-4">
-            <div class="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                    <h2 class="text-lg font-extrabold flex items-center space-x-2">
-                        <span>🗓️ Upload Queue</span>
-                        <span class="text-xs px-2.5 py-0.5 rounded-full bg-blue-950 text-blue-300 border border-blue-800">Scheduled Posts</span>
-                    </h2>
-                    <p class="text-xs text-gray-400 mt-0.5">Posts are spaced per platform (YouTube 2h, TikTok/Instagram 3h) and capped at 5/day each.</p>
-                </div>
-                <button onclick="fetchQueue()" class="px-3 py-1.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-xs font-semibold text-gray-200 border border-gray-700 transition">Refresh</button>
-            </div>
-
-            <div id="queue-error" class="hidden text-xs text-amber-400 bg-amber-950/40 border border-amber-800/60 rounded-xl px-3 py-2"></div>
-
-            <div id="queue-list" class="text-xs text-gray-400 bg-black/40 border border-gray-800 rounded-xl p-3 max-h-64 overflow-y-auto custom-scroll">No queued uploads.</div>
-
-            <form id="enqueue-form" class="bg-black/40 border border-gray-800 rounded-xl p-3 space-y-2">
-                <div class="text-xs font-bold text-gray-300">Schedule an Upload</div>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    <input id="queue-clip-id" type="number" placeholder="Clip ID" class="bg-black/60 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
-                    <select id="queue-platform" class="bg-black/60 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[#53fc18]">
-                        <option value="tiktok">TikTok</option>
-                        <option value="youtube">YouTube Shorts</option>
-                        <option value="instagram">Instagram Reels</option>
-                    </select>
-                    <input id="queue-scheduled-for" type="datetime-local" title="Leave blank for ASAP" class="bg-black/60 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[#53fc18]">
-                    <button type="submit" class="bg-[#53fc18] hover:bg-[#46d614] text-black font-bold py-1.5 rounded-lg text-xs transition">+ Enqueue</button>
-                </div>
-                <input id="queue-video-url" type="text" placeholder="Public video URL — required for Instagram only (Graph API cannot read local files)" class="w-full bg-black/60 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
-            </form>
-        </div>
-
-        <!-- ANALYTICS FEEDBACK LOOP -->
-        <div class="glass-panel rounded-2xl p-5 space-y-4">
-            <div class="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                    <h2 class="text-lg font-extrabold flex items-center space-x-2">
-                        <span>📊 Analytics — What Actually Goes Viral</span>
-                        <span class="text-xs px-2.5 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-800">Feedback Loop</span>
-                    </h2>
-                    <p class="text-xs text-gray-400 mt-0.5">Real views vs. AI score, category and streamer — so thresholds get tuned with evidence.</p>
-                </div>
-                <button onclick="fetchAnalytics()" class="px-3 py-1.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-xs font-semibold text-gray-200 border border-gray-700 transition">Refresh</button>
-            </div>
-
-            <div id="analytics-error" class="hidden text-xs text-amber-400 bg-amber-950/40 border border-amber-800/60 rounded-xl px-3 py-2"></div>
-
-            <div id="analytics-recommendation" class="text-xs bg-emerald-950/40 border border-emerald-800/60 rounded-xl px-3 py-2 text-emerald-200">No performance data yet — record views on posted clips to get a threshold recommendation.</div>
-
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <div class="bg-black/40 border border-gray-800 rounded-xl p-3">
-                    <div class="text-xs font-bold text-gray-300 mb-2">Avg Views by AI-Score Bucket</div>
-                    <div id="analytics-by-bucket" class="text-xs text-gray-400">No data yet.</div>
-                </div>
-                <div class="bg-black/40 border border-gray-800 rounded-xl p-3">
-                    <div class="text-xs font-bold text-gray-300 mb-2">Avg Views by Category</div>
-                    <div id="analytics-by-category" class="text-xs text-gray-400">No data yet.</div>
-                </div>
-                <div class="bg-black/40 border border-gray-800 rounded-xl p-3">
-                    <div class="text-xs font-bold text-gray-300 mb-2">Avg Views by Streamer</div>
-                    <div id="analytics-by-streamer" class="text-xs text-gray-400">No data yet.</div>
-                </div>
-            </div>
-
-            <!-- Monthly report -->
-            <div class="bg-black/40 border border-gray-800 rounded-xl p-3 space-y-2">
-                <div class="flex items-center justify-between flex-wrap gap-2">
-                    <div class="text-xs font-bold text-gray-300">Monthly Report</div>
-                    <div class="flex items-center space-x-2">
-                        <input id="report-year" type="number" class="w-20 bg-black/60 border border-gray-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-[#53fc18]">
-                        <input id="report-month" type="number" min="1" max="12" class="w-16 bg-black/60 border border-gray-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-[#53fc18]">
-                        <button onclick="fetchMonthlyReport()" class="bg-gray-800 hover:bg-gray-700 text-xs font-semibold px-3 py-1 rounded-lg border border-gray-700 transition">Load</button>
-                    </div>
-                </div>
-                <div id="monthly-report" class="text-xs text-gray-400">Pick a month and press Load.</div>
-            </div>
-
-            <!-- Record performance -->
-            <form id="record-performance-form" class="bg-black/40 border border-gray-800 rounded-xl p-3 space-y-2">
-                <div class="text-xs font-bold text-gray-300">Record Performance (feeds the feedback loop)</div>
-                <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
-                    <input id="perf-clip-id" type="number" placeholder="Clip ID" class="bg-black/60 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
-                    <select id="perf-platform" class="bg-black/60 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[#53fc18]">
-                        <option value="tiktok">TikTok</option>
-                        <option value="youtube">YouTube Shorts</option>
-                        <option value="instagram">Instagram Reels</option>
-                    </select>
-                    <input id="perf-views" type="number" placeholder="Views" class="bg-black/60 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
-                    <input id="perf-likes" type="number" placeholder="Likes (opt.)" class="bg-black/60 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
-                    <button type="submit" class="bg-purple-950 hover:bg-purple-900 border border-purple-700 text-purple-300 font-bold py-1.5 rounded-lg text-xs transition">Record</button>
-                </div>
-            </form>
-        </div>
-
         <!-- Live Hunt Panel (gta6-clipper feature 14) -->
         <div class="glass-panel rounded-2xl p-4 space-y-3">
             <div class="flex items-center justify-between flex-wrap gap-2">
@@ -682,25 +485,7 @@
                     <div id="voiceover-status" class="text-[11px] text-gray-400"></div>
                 </div>
 
-                <!-- Discord Bot Command Submission Generator -->
-                <div class="bg-gray-900 border border-gray-700 p-3 rounded-xl space-y-1.5">
-                    <div class="flex items-center justify-between">
-                        <label class="text-[11px] font-bold text-[#53fc18] flex items-center space-x-1">
-                            <span>🤖 Discord Bot Payout Submission</span>
-                        </label>
-                        <span class="text-[10px] text-amber-400 font-mono">⏰ Submit within 12h</span>
-                    </div>
-                    <div class="flex gap-2">
-                        <input id="posted-url-input" oninput="updateDiscordCommand()" type="text" placeholder="Paste your TikTok/Reels/Shorts link here..." 
-                               class="flex-1 bg-black border border-gray-600 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
-                        <button onclick="copyDiscordCommand()" class="bg-[#53fc18] hover:bg-[#46d614] text-black font-bold px-3 py-1.5 rounded-lg text-xs transition">
-                            Copy
-                        </button>
-                    </div>
-                    <div class="text-[11px] font-mono text-gray-400 bg-black/60 p-1.5 rounded border border-gray-800 break-all select-all" id="discord-command-preview">
-                        /adinross &lt;paste link above&gt;
-                    </div>
-                </div>
+
 
                 <!-- Multi-Platform Metadata Tabs (PRD Section 11) -->
                 <div class="space-y-2">
@@ -910,10 +695,12 @@
 
         function updateRateDisplay() {
             const select = document.getElementById('active-target-streamer');
-            const streamer = select.value ? select.value.toLowerCase() : "other";
+            const streamer = select && select.value ? select.value.toLowerCase() : "other";
             const info = ratesData[streamer] || {cpm: 40, cmd: `/${streamer}`};
-            document.getElementById('pill-cmd').innerText = info.cmd;
-            document.getElementById('pill-rate').innerText = `$${info.cpm} / 100K`;
+            const cmdEl = document.getElementById('pill-cmd');
+            const rateEl = document.getElementById('pill-rate');
+            if (cmdEl) cmdEl.innerText = info.cmd;
+            if (rateEl) rateEl.innerText = `$${info.cpm} / 100K`;
         }
 
         async function fetchStats() {
@@ -1427,11 +1214,14 @@
         }
 
         function updateDiscordCommand() {
-            const postedUrl = document.getElementById('posted-url-input').value.trim();
+            const input = document.getElementById('posted-url-input');
+            if (!input) return;
+            const postedUrl = input.value.trim();
             const info = ratesData[currentModalStreamer.toLowerCase()] || {cmd: `/${currentModalStreamer.toLowerCase()}`};
             const cmd = info.cmd;
             const text = postedUrl ? `${cmd} ${postedUrl}` : `${cmd} <PASTE_LINK_HERE>`;
-            document.getElementById('discord-command-preview').innerText = text;
+            const preview = document.getElementById('discord-command-preview');
+            if (preview) preview.innerText = text;
         }
 
         function copyDiscordCommand() {
@@ -1738,22 +1528,7 @@
             no: 'bg-red-950 text-red-400 border-red-800',
             unknown: 'bg-gray-900 text-gray-400 border-gray-700'
         };
-        async function fetchClipRule(streamer) {
-            const badge = document.getElementById('clip-rule-badge');
-            if (!badge || !streamer) return;
-            try {
-                const res = await fetch(`/api/clip-rules/kick/${encodeURIComponent(streamer.toLowerCase())}`);
-                const data = await res.json();
-                const value = document.getElementById('clip-rule-value');
-                value.innerText = data.rule || 'unknown';
-                value.className = 'font-bold font-mono px-2 py-0.5 rounded border ' + (CLIP_RULE_STYLES[data.rule] || CLIP_RULE_STYLES.unknown);
-                document.getElementById('clip-rule-note').innerText = data.note || (data.rule === 'unknown' ? 'No rule on file for this streamer yet.' : '');
-                const src = document.getElementById('clip-rule-source');
-                if (data.source) { src.href = data.source; src.classList.remove('hidden'); }
-                else { src.classList.add('hidden'); }
-                badge.classList.remove('hidden');
-            } catch (e) { console.error(e); }
-        }
+        function fetchClipRule(streamer) {}
 
         // Live hunt (feature 14): who is live on Kick / Twitch / YouTube.
         async function fetchHunt() {
@@ -2010,26 +1785,14 @@
         fetchClips();
         fetchNotifications();
         fetchLogs();
-        fetchEarnings();
-        fetchQueue();
-        fetchAnalytics();
         fetchHunt();
         buildWeekGrid();
-        fetchClipRule('adinross');
-        (function initReportMonth() {
-            const now = new Date();
-            document.getElementById('report-year').value = now.getFullYear();
-            document.getElementById('report-month').value = now.getMonth() + 1;
-        })();
 
         setInterval(fetchStats, 3000);
         setInterval(fetchStreamers, 10000);
         setInterval(fetchNotifications, 5000);
         setInterval(fetchClips, 8000);
         setInterval(fetchLogs, 5000);
-        setInterval(fetchEarnings, 15000);
-        setInterval(fetchQueue, 15000);
-        setInterval(fetchAnalytics, 30000);
         setInterval(fetchHunt, 60000);
     </script>
 </body>
