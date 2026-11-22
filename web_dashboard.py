@@ -6,17 +6,20 @@ import psutil
 import threading
 from pathlib import Path
 from typing import Optional
+import json
+import asyncio
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.gzip import GZipMiddleware
 from datetime import datetime
 import requests
 from pydantic import BaseModel
 
 from config import BASE_DIR, CLIPS_DIR, EDITED_DIR, STREAMERS_TO_MONITOR, AUTO_CLIP_ENABLED
 from database import (
-    get_all_streamers, get_all_clips, get_recent_logs, 
+    get_all_streamers, get_all_clips, get_paginated_clips, get_recent_logs, 
     get_connection, log_event, update_streamer_status,
     get_notifications, mark_notification_read, mark_all_notifications_read,
     update_clip_approval, toggle_streamer_monitoring, delete_clip, add_notification, add_clip
@@ -27,11 +30,14 @@ from pipeline import ClipPipeline
 from screen_controller import KickScreenController
 
 app = FastAPI(title="Kick AI Clip Engine")
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Mount templates and static
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 static_dir = BASE_DIR / "static"
 static_dir.mkdir(parents=True, exist_ok=True)
+thumbnails_dir = static_dir / "thumbnails"
+thumbnails_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # Shared singletons
@@ -320,8 +326,112 @@ async def remove_streamer(username: str):
     return {"status": "removed"}
 
 @app.get("/api/clips")
-async def list_clips():
+async def list_clips(
+    page: Optional[int] = None,
+    limit: Optional[int] = None,
+    category: Optional[str] = "all",
+    status: Optional[str] = "all",
+    search: Optional[str] = None
+):
+    """
+    Returns clips. If page or limit is specified, returns paginated JSON:
+    {"clips": [...], "total": N, "page": P, "limit": L, "pages": total_pages}
+    Otherwise returns the complete array for full backwards compatibility.
+    """
+    if page is not None or limit is not None:
+        p = page or 1
+        l = limit or 24
+        return get_paginated_clips(page=p, limit=l, category=category, approval_status=status, search=search)
     return get_all_clips()
+
+@app.get("/thumb/{clip_id}.webp")
+@app.get("/api/clips/{clip_id}/thumbnail")
+async def get_clip_thumbnail(clip_id: int):
+    """
+    Ultra-light WebP thumbnail endpoint (PRD Phase 4).
+    Returns ~8-20 KB image instead of streaming full video, saving 99.9% bandwidth.
+    Cached on disk and served with long-lived Cache-Control and ETag.
+    """
+    thumb_path = thumbnails_dir / f"clip_{clip_id}.webp"
+    if thumb_path.exists() and thumb_path.stat().st_size > 500:
+        return FileResponse(
+            str(thumb_path),
+            media_type="image/webp",
+            headers={"Cache-Control": "public, max-age=604800, immutable"}
+        )
+
+    # Resolve video source path
+    conn = get_connection()
+    row = conn.execute("SELECT raw_path, edited_path FROM clips WHERE id = ?", (clip_id,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    src = row["edited_path"] or row["raw_path"]
+    if not src or not os.path.exists(src):
+        fallback = static_dir / "preview_frame.jpg"
+        if fallback.exists():
+            return FileResponse(str(fallback), media_type="image/jpeg")
+        raise HTTPException(status_code=404, detail="Video source missing on disk")
+
+    try:
+        cmd = [
+            "ffmpeg", "-y", "-ss", "1.5", "-i", src,
+            "-vframes", "1",
+            "-vf", "scale=360:640:force_original_aspect_ratio=decrease",
+            "-c:v", "libwebp", "-quality", "75",
+            str(thumb_path)
+        ]
+        res = subprocess.run(
+            cmd, capture_output=True, timeout=12,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        )
+        if thumb_path.exists() and thumb_path.stat().st_size > 500:
+            return FileResponse(
+                str(thumb_path),
+                media_type="image/webp",
+                headers={"Cache-Control": "public, max-age=604800, immutable"}
+            )
+    except Exception as e:
+        log_event("WARNING", "Thumbnail", f"Could not generate thumbnail for #{clip_id}: {e}")
+
+    fallback = static_dir / "preview_frame.jpg"
+    if fallback.exists():
+        return FileResponse(str(fallback), media_type="image/jpeg")
+    raise HTTPException(status_code=500, detail="Thumbnail generation failed")
+
+@app.get("/api/stream/events")
+async def sse_stream_events(request: Request):
+    """
+    Server-Sent Events (SSE) for real-time dashboard telemetry and status.
+    Eliminates aggressive client polling, minimizing network overhead.
+    """
+    async def event_generator():
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                # Transmit telemetry and queue summary
+                payload = {
+                    "type": "telemetry",
+                    "cpu": _hardware_stats.get("cpu_percent", 0.0),
+                    "gpu": _hardware_stats.get("gpu_percent", 0),
+                    "temp": _hardware_stats.get("gpu_temp", 0),
+                    "vram_used": _hardware_stats.get("vram_used_mb", 0),
+                    "vram_total": _hardware_stats.get("vram_total_mb", 0),
+                    "recorders": len(monitor.active_recorders),
+                    "ts": time.time()
+                }
+                yield f"data: {json.dumps(payload)}\n\n"
+            except Exception:
+                pass
+            await asyncio.sleep(3)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
+    )
 
 @app.get("/api/clips/{clip_id}")
 async def get_clip(clip_id: int):

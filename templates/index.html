@@ -32,6 +32,37 @@
             iframe, video, img { max-width: 100%; }
             input, select, textarea { font-size: 16px; } /* stops iOS auto-zoom on focus */
         }
+        /* PRD Phase 4: Ultra-Lite Low-Resource Styles */
+        body.mode-ultra-lite * {
+            animation: none !important;
+            transition: none !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+        body.mode-ultra-lite .glass-panel {
+            background: #111827 !important;
+            border: 1px solid #1f2937 !important;
+        }
+        body.mode-ultra-lite .shadow-lg,
+        body.mode-ultra-lite .shadow-xl,
+        body.mode-ultra-lite .shadow-2xl,
+        body.mode-ultra-lite .shadow-inner {
+            box-shadow: none !important;
+        }
+        body.mode-ultra-lite .animate-spin,
+        body.mode-ultra-lite .animate-pulse {
+            animation: none !important;
+        }
+        /* Accessibility: Reduced Motion */
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
     </style>
 </head>
 <body class="min-h-screen flex flex-col">
@@ -52,7 +83,22 @@
         </div>
 
         <!-- Telemetry, Notifications & Rates Indicator -->
-        <div class="flex items-center space-x-4">
+        <div class="flex items-center space-x-3 flex-wrap gap-y-2">
+            <!-- PRD Phase 4: Mode Switcher -->
+            <div class="flex items-center space-x-1.5 bg-gray-900/90 px-2.5 py-1 rounded-xl border border-gray-800 text-xs shadow-inner">
+                <span class="text-gray-400 font-semibold hidden lg:inline">Mode:</span>
+                <select id="dashboard-mode-select" onchange="setDashboardMode(this.value)" class="bg-black text-[11px] font-bold text-[#53fc18] rounded px-2 py-1 border border-gray-700 outline-none cursor-pointer">
+                    <option value="ultra-lite">⚡ Ultra Lite (2-4GB)</option>
+                    <option value="balanced" selected>⚖️ Balanced</option>
+                    <option value="full">🚀 Full Experience</option>
+                </select>
+            </div>
+
+            <!-- Diagnostics Button -->
+            <button onclick="openDiagnosticsModal()" title="Client Performance & Hardware Diagnostics" class="flex items-center space-x-1 bg-gray-900/90 hover:bg-gray-800 border border-gray-800 text-gray-300 font-semibold px-2.5 py-1.5 rounded-xl text-xs transition">
+                <span>📊</span>
+                <span class="hidden sm:inline font-mono">Diag</span>
+            </button>
             
 
 
@@ -570,6 +616,20 @@
             <div id="clips-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
             </div>
 
+            <!-- PRD Phase 4: Dynamic Pagination Bar -->
+            <div id="clips-pagination" class="flex items-center justify-between pt-4 border-t border-gray-800 text-xs flex-wrap gap-2">
+                <div class="text-gray-400 font-mono" id="pagination-info">Showing clips</div>
+                <div class="flex items-center space-x-2">
+                    <button id="btn-prev-page" onclick="changeClipPage(-1)" class="px-3 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 text-gray-200 border border-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition">
+                        ◀ Previous
+                    </button>
+                    <span id="pagination-page-num" class="px-3 py-1 rounded bg-black font-bold text-[#53fc18] border border-gray-800 font-mono">1</span>
+                    <button id="btn-next-page" onclick="changeClipPage(1)" class="px-3 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 text-gray-200 border border-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition">
+                        Next ▶
+                    </button>
+                </div>
+            </div>
+
         </div>
 
         <!-- Live Hunt Panel (gta6-clipper feature 14) -->
@@ -765,6 +825,97 @@
                 </div>
             </div>
 
+        </div>
+    </div>
+
+    <!-- PRD Phase 4: Instant On-Demand Video Preview Modal (Single-Decoder Isolation) -->
+    <div id="video-preview-modal" class="fixed inset-0 bg-black/90 backdrop-blur-md hidden z-50 flex items-center justify-center p-4">
+        <div class="glass-panel bg-gray-950 border border-gray-800 rounded-2xl max-w-sm w-full p-4 relative flex flex-col items-center shadow-2xl">
+            <button onclick="closeVideoPreviewModal()" class="absolute top-3 right-3 text-gray-400 hover:text-white text-2xl font-bold">&times;</button>
+            <div class="w-full text-center mb-3 pr-6">
+                <h4 id="preview-modal-title" class="text-xs font-bold text-gray-200 truncate">Video Preview</h4>
+                <span id="preview-modal-info" class="text-[10px] text-gray-500 font-mono">9:16 Vertical Video</span>
+            </div>
+            <div class="w-full aspect-[9/16] bg-black rounded-xl overflow-hidden border border-gray-800 flex items-center justify-center relative shadow-inner">
+                <video id="preview-modal-player" controls playsinline preload="metadata" class="w-full h-full object-contain rounded-xl"></video>
+            </div>
+            <div class="flex items-center space-x-2 mt-4 w-full justify-between">
+                <a id="preview-modal-download-btn" href="#" download class="px-3 py-1.5 rounded-lg bg-[#53fc18] hover:bg-[#46d614] text-black font-extrabold text-xs transition flex items-center space-x-1">
+                    <span>⬇️ Download</span>
+                </a>
+                <button onclick="openFullModalFromPreview()" class="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs text-white border border-gray-700 font-semibold transition">
+                    Edit & Publish &rarr;
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- PRD Phase 4: Client Performance Diagnostics Modal -->
+    <div id="diagnostics-modal" class="fixed inset-0 bg-black/85 backdrop-blur-md hidden z-50 flex items-center justify-center p-4">
+        <div class="glass-panel bg-gray-950 border border-gray-800 rounded-2xl max-w-md w-full p-5 relative space-y-4 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+                <div class="flex items-center space-x-2">
+                    <span class="text-lg">📊</span>
+                    <h3 class="text-sm font-bold text-white">Client Performance Diagnostics</h3>
+                </div>
+                <button onclick="closeDiagnosticsModal()" class="text-gray-400 hover:text-white text-xl font-bold">&times;</button>
+            </div>
+            
+            <div class="space-y-2 text-xs font-mono">
+                <div class="flex justify-between p-2 rounded bg-black/40 border border-gray-800">
+                    <span class="text-gray-400">Dashboard Operating Mode:</span>
+                    <span id="diag-mode" class="font-bold text-[#53fc18]">Balanced</span>
+                </div>
+                <div class="flex justify-between p-2 rounded bg-black/40 border border-gray-800">
+                    <span class="text-gray-400">Browser JS Memory Heap:</span>
+                    <span id="diag-memory" class="font-bold text-cyan-400">Measuring...</span>
+                </div>
+                <div class="flex justify-between p-2 rounded bg-black/40 border border-gray-800">
+                    <span class="text-gray-400">Initial Page Load Time:</span>
+                    <span id="diag-load-time" class="font-bold text-emerald-400">-- ms</span>
+                </div>
+                <div class="flex justify-between p-2 rounded bg-black/40 border border-gray-800">
+                    <span class="text-gray-400">API Telemetry Latency (RTT):</span>
+                    <span id="diag-api-latency" class="font-bold text-yellow-400">Testing...</span>
+                </div>
+                <div class="flex justify-between p-2 rounded bg-black/40 border border-gray-800">
+                    <span class="text-gray-400">Network Connection:</span>
+                    <span id="diag-network" class="font-bold text-purple-300">Online</span>
+                </div>
+                <div class="flex justify-between p-2 rounded bg-black/40 border border-gray-800">
+                    <span class="text-gray-400">Active Video Decoders in DOM:</span>
+                    <span id="diag-decoders" class="font-bold text-[#53fc18]">0 Decoders (Clean)</span>
+                </div>
+                <div class="flex justify-between p-2 rounded bg-black/40 border border-gray-800">
+                    <span class="text-gray-400">Visible Rendered Clips:</span>
+                    <span id="diag-visible-clips" class="font-bold text-gray-200">--</span>
+                </div>
+            </div>
+
+            <div class="p-3 bg-emerald-950/40 border border-emerald-800/60 rounded-xl text-[11px] text-emerald-300">
+                💡 <b>Zero Local Video Processing</b>: 100% of Whisper STT, OpenCV face tracking, and FFmpeg encoding executes on remote VPS. Client device strictly renders lightweight HTML5 & WebP.
+            </div>
+
+            <div class="flex justify-end pt-2">
+                <button onclick="runDiagnosticsCheck()" class="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs text-white border border-gray-700 font-semibold transition">
+                    🔄 Re-test Metrics
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- PRD Phase 4: Non-Intrusive Device Adaptation Alert -->
+    <div id="mode-alert-toast" class="fixed bottom-4 right-4 max-w-sm glass-panel bg-gray-950/95 border border-[#53fc18]/60 p-3.5 rounded-2xl shadow-2xl z-50 hidden transition space-y-2">
+        <div class="flex items-start space-x-2">
+            <span class="text-lg">⚡</span>
+            <div class="flex-1 text-xs">
+                <div class="font-bold text-white">Low-Resource Device Detected</div>
+                <div class="text-gray-400 text-[11px] mt-0.5" id="mode-alert-text">Ultra-Lite mode activated for 2GB/4GB RAM smooth operation.</div>
+            </div>
+            <button onclick="document.getElementById('mode-alert-toast').classList.add('hidden')" class="text-gray-400 hover:text-white">&times;</button>
+        </div>
+        <div class="flex items-center space-x-2 justify-end">
+            <button onclick="document.getElementById('mode-alert-toast').classList.add('hidden')" class="px-2.5 py-1 rounded text-[11px] bg-gray-800 text-gray-300">Dismiss</button>
         </div>
     </div>
 
@@ -2177,6 +2328,67 @@
             renderClips();
         }
 
+        // --- PRD Phase 4: Ultra-Lite Architecture & Resource Management ---
+        let currentDashboardMode = localStorage.getItem('dashboard_mode') || 'balanced';
+        let currentClipPage = 1;
+        let activePreviewClipId = null;
+        let activePollingTimers = [];
+
+        function getPageSize() {
+            if (currentDashboardMode === 'ultra-lite') return 12;
+            if (currentDashboardMode === 'balanced') return 24;
+            return 48;
+        }
+
+        function changeClipPage(delta) {
+            currentClipPage += delta;
+            renderClips();
+            const el = document.getElementById('clips-grid');
+            if (el) el.scrollIntoView({ behavior: currentDashboardMode === 'ultra-lite' ? 'auto' : 'smooth', block: 'start' });
+        }
+
+        function playVideoPreview(clipId, event) {
+            if (event) event.stopPropagation();
+            activePreviewClipId = clipId;
+            const clip = allClipsData.find(c => c.id === clipId);
+            const player = document.getElementById('preview-modal-player');
+            const titleEl = document.getElementById('preview-modal-title');
+            const infoEl = document.getElementById('preview-modal-info');
+            const dlBtn = document.getElementById('preview-modal-download-btn');
+
+            if (titleEl) titleEl.innerText = clip ? (clip.hook_banner || clip.title || 'Clip Preview') : 'Clip Preview';
+            if (infoEl) infoEl.innerText = clip ? `${clip.streamer ? clip.streamer.toUpperCase() : 'KICK'} • ${clip.duration || 30}s` : '9:16 Vertical Video';
+            if (dlBtn) {
+                dlBtn.href = `/video/${clipId}?download=true`;
+                dlBtn.download = `${clip ? clip.streamer : 'kick'}_clip_${clipId}.mp4`;
+            }
+
+            if (player) {
+                player.pause();
+                player.src = `/video/${clipId}`;
+                player.load();
+                player.play().catch(e => console.log("Play preview on-demand:", e));
+            }
+            document.getElementById('video-preview-modal').classList.remove('hidden');
+        }
+
+        function closeVideoPreviewModal() {
+            const player = document.getElementById('preview-modal-player');
+            if (player) {
+                player.pause();
+                player.removeAttribute('src'); // Detach source
+                player.load(); // Flush hardware video decoder context
+            }
+            document.getElementById('video-preview-modal').classList.add('hidden');
+            activePreviewClipId = null;
+        }
+
+        function openFullModalFromPreview() {
+            const cid = activePreviewClipId;
+            closeVideoPreviewModal();
+            if (cid) openModal(cid);
+        }
+
         async function fetchClips() {
             try {
                 const res = await fetch('/api/clips');
@@ -2231,10 +2443,31 @@
                         <div class="text-xs text-gray-500 mt-1">Try switching filters or click "Sweet Spot (25s)" to capture live stream highlights!</div>
                     </div>
                 `;
+                const infoEl = document.getElementById('pagination-info');
+                if (infoEl) infoEl.innerText = '0 clips found';
                 return;
             }
 
-            filtered.forEach(c => {
+            const pageSize = getPageSize();
+            const totalFiltered = filtered.length;
+            const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize));
+            if (currentClipPage > totalPages) currentClipPage = totalPages;
+            if (currentClipPage < 1) currentClipPage = 1;
+
+            const pageNumEl = document.getElementById('pagination-page-num');
+            const infoEl = document.getElementById('pagination-info');
+            const btnPrev = document.getElementById('btn-prev-page');
+            const btnNext = document.getElementById('btn-next-page');
+
+            if (pageNumEl) pageNumEl.innerText = `${currentClipPage} / ${totalPages}`;
+            const startIdx = (currentClipPage - 1) * pageSize;
+            const endIdx = Math.min(startIdx + pageSize, totalFiltered);
+            if (infoEl) infoEl.innerText = `Showing ${startIdx + 1}–${endIdx} of ${totalFiltered} clips`;
+            if (btnPrev) btnPrev.disabled = (currentClipPage <= 1);
+            if (btnNext) btnNext.disabled = (currentClipPage >= totalPages);
+
+            const pageClips = filtered.slice(startIdx, endIdx);
+            pageClips.forEach(c => {
                 const card = document.createElement('div');
                 card.id = `clip-card-${c.id}`;
                 card.className = "glass-panel rounded-2xl p-4 flex flex-col justify-between border border-gray-800 hover:border-gray-700 transition space-y-3";
@@ -2273,18 +2506,24 @@
                             </span>
                         </div>
 
-                        <!-- Video Player Box with Direct Inline Playback -->
-                        <div class="bg-black rounded-xl overflow-hidden aspect-[9/14] flex items-center justify-center relative shadow-lg">
+                        <!-- Video Poster / WebP Thumbnail with On-Demand Play (Phase 4 Zero-Decoders) -->
+                        <div class="bg-black rounded-xl overflow-hidden aspect-[9/14] flex items-center justify-center relative shadow-lg group">
                             ${isReady ? `
-                                <video id="card-video-${c.id}" 
-                                       src="${videoSrc}" 
-                                       preload="metadata" 
-                                       playsinline 
-                                       controls 
-                                       class="w-full h-full object-cover rounded-xl"></video>
+                                <img src="/thumb/${c.id}.webp" 
+                                     loading="lazy" 
+                                     alt="${c.title || 'Clip thumbnail'}" 
+                                     onerror="this.onerror=null; this.src='/static/preview_frame.jpg';"
+                                     class="w-full h-full object-cover rounded-xl transition duration-300 group-hover:scale-105">
+                                <div onclick="playVideoPreview(${c.id}, event)" 
+                                     title="Click to play 9:16 preview"
+                                     class="absolute inset-0 bg-black/40 hover:bg-black/20 flex items-center justify-center cursor-pointer transition">
+                                    <div class="w-12 h-12 rounded-full bg-[#53fc18] text-black flex items-center justify-center font-black text-lg shadow-[0_0_20px_rgba(83,252,24,0.6)] transform group-hover:scale-110 transition">
+                                        ▶
+                                    </div>
+                                </div>
                             ` : isDraft ? `
                                 <div class="relative w-full h-full flex flex-col items-center justify-center p-3 text-center bg-gradient-to-b from-purple-950/40 to-black">
-                                    <video src="/video/${c.id}?raw=true" preload="metadata" muted class="absolute inset-0 w-full h-full object-cover opacity-35 pointer-events-none"></video>
+                                    <img src="/static/preview_frame.jpg" loading="lazy" class="absolute inset-0 w-full h-full object-cover opacity-35 pointer-events-none">
                                     <div class="relative z-10 flex flex-col items-center space-y-2">
                                         <span class="text-[10px] font-mono font-bold bg-purple-950/90 text-purple-300 px-2.5 py-0.5 rounded-full border border-purple-700">✂️ RAW CAPTURE</span>
                                         <button onclick="openVisualCropForClip(${c.id}, event)" class="px-3.5 py-2 rounded-xl bg-[#53fc18] hover:bg-[#46d614] text-black font-black text-xs shadow-lg transition flex items-center space-x-1.5">
@@ -2296,7 +2535,7 @@
                                 </div>
                             ` : `
                                 <div class="text-center p-4">
-                                    <div class="animate-spin text-2xl mb-1">⚡</div>
+                                    <div class="text-2xl mb-1 text-yellow-400">⚡</div>
                                     <div class="text-xs text-yellow-400 font-mono">Rendering Vertical Clip...</div>
                                 </div>
                             `}
@@ -2701,8 +2940,11 @@
 
         function closeModal() {
             const player = document.getElementById('modal-video-player');
-            player.pause();
-            player.src = '';
+            if (player) {
+                player.pause();
+                player.removeAttribute('src');
+                player.load(); // Flush hardware video decoder buffer immediately
+            }
             document.getElementById('video-modal').classList.add('hidden');
         }
 
@@ -3222,6 +3464,191 @@
             finally { btn.disabled = false; }
         }
 
+        // --- PRD Phase 4: Mode Switcher, Device Adaptation & Diagnostics ---
+        function clearAllPolling() {
+            activePollingTimers.forEach(t => clearInterval(t));
+            activePollingTimers = [];
+        }
+
+        function setDashboardMode(mode, fromAuto = false) {
+            currentDashboardMode = mode;
+            localStorage.setItem('dashboard_mode', mode);
+            const sel = document.getElementById('dashboard-mode-select');
+            if (sel) sel.value = mode;
+
+            document.body.classList.remove('mode-ultra-lite', 'mode-balanced', 'mode-full');
+            document.body.classList.add(`mode-${mode}`);
+
+            clearAllPolling();
+            setupPollingForMode(mode);
+
+            // Re-render clips with new mode constraints (12 vs 24 vs 48 page size)
+            renderClips();
+
+            if (!fromAuto) {
+                showToast(mode === 'ultra-lite' ? '⚡ Ultra-Lite Mode (Minimal RAM & Network)' : mode === 'full' ? '🚀 Full Experience Mode' : '⚖️ Balanced Mode');
+            }
+        }
+
+        function setupPollingForMode(mode) {
+            if (mode === 'ultra-lite') {
+                // Ultra-gentle polling: slow refresh, minimal requests
+                activePollingTimers.push(setInterval(fetchStats, 10000));
+                activePollingTimers.push(setInterval(fetchNotifications, 15000));
+                activePollingTimers.push(setInterval(fetchClips, 30000));
+                activePollingTimers.push(setInterval(fetchStreamers, 30000));
+            } else if (mode === 'full') {
+                // High-frequency live experience
+                activePollingTimers.push(setInterval(fetchStats, 2000));
+                activePollingTimers.push(setInterval(fetchNotifications, 4000));
+                activePollingTimers.push(setInterval(fetchClips, 6000));
+                activePollingTimers.push(setInterval(fetchStreamers, 10000));
+                activePollingTimers.push(setInterval(fetchCommunityClips, 20000));
+                activePollingTimers.push(setInterval(fetchLogs, 5000));
+                activePollingTimers.push(setInterval(fetchHunt, 60000));
+            } else {
+                // Balanced mode (default)
+                activePollingTimers.push(setInterval(fetchStats, 5000));
+                activePollingTimers.push(setInterval(fetchNotifications, 8000));
+                activePollingTimers.push(setInterval(fetchClips, 12000));
+                activePollingTimers.push(setInterval(fetchStreamers, 15000));
+                activePollingTimers.push(setInterval(fetchCommunityClips, 35000));
+                activePollingTimers.push(setInterval(fetchLogs, 10000));
+                activePollingTimers.push(setInterval(fetchHunt, 90000));
+            }
+        }
+
+        function detectAndAdaptDevice() {
+            const saved = localStorage.getItem('dashboard_mode');
+            if (saved) {
+                setDashboardMode(saved, true);
+                return;
+            }
+
+            const mem = navigator.deviceMemory || 8;
+            const cores = navigator.hardwareConcurrency || 4;
+            const conn = navigator.connection || {};
+            const isSaveData = conn.saveData || false;
+            const isSlowNet = ['slow-2g', '2g', '3g'].includes(conn.effectiveType) || (conn.downlink && conn.downlink < 2.0);
+            const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+            if (mem <= 4 || cores <= 2 || isSaveData || isSlowNet || prefersReduced) {
+                setDashboardMode('ultra-lite', true);
+                const toast = document.getElementById('mode-alert-toast');
+                const text = document.getElementById('mode-alert-text');
+                if (toast && text) {
+                    text.innerText = `Constrained environment detected (RAM ~${mem}GB, Cores ~${cores}). Ultra-Lite mode activated.`;
+                    toast.classList.remove('hidden');
+                }
+            } else {
+                setDashboardMode('balanced', true);
+            }
+        }
+
+        async function openDiagnosticsModal() {
+            document.getElementById('diagnostics-modal').classList.remove('hidden');
+            await runDiagnosticsCheck();
+        }
+
+        function closeDiagnosticsModal() {
+            document.getElementById('diagnostics-modal').classList.add('hidden');
+        }
+
+        async function runDiagnosticsCheck() {
+            const modeEl = document.getElementById('diag-mode');
+            const memEl = document.getElementById('diag-memory');
+            const loadEl = document.getElementById('diag-load-time');
+            const latEl = document.getElementById('diag-api-latency');
+            const netEl = document.getElementById('diag-network');
+            const decEl = document.getElementById('diag-decoders');
+            const visEl = document.getElementById('diag-visible-clips');
+
+            if (modeEl) modeEl.innerText = currentDashboardMode.toUpperCase();
+
+            // JS Memory Heap
+            if (memEl) {
+                if (performance && performance.memory) {
+                    const used = (performance.memory.usedJSHeapSize / (1024 * 1024)).toFixed(1);
+                    const total = (performance.memory.totalJSHeapSize / (1024 * 1024)).toFixed(1);
+                    memEl.innerText = `${used} MB / ${total} MB`;
+                } else {
+                    memEl.innerText = "Browser protected (Normal)";
+                }
+            }
+
+            // Load Time
+            if (loadEl) {
+                const nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+                if (nav) {
+                    loadEl.innerText = `${Math.round(nav.loadEventEnd || performance.now())} ms`;
+                } else {
+                    loadEl.innerText = `${Math.round(performance.now())} ms`;
+                }
+            }
+
+            // API Latency
+            if (latEl) {
+                const t0 = performance.now();
+                try {
+                    await fetch('/api/stats?t=' + Date.now(), { cache: 'no-store' });
+                    const rtt = Math.round(performance.now() - t0);
+                    latEl.innerText = `${rtt} ms (Roundtrip)`;
+                } catch (e) {
+                    latEl.innerText = "Error pinging API";
+                }
+            }
+
+            // Network
+            if (netEl) {
+                const conn = navigator.connection;
+                if (!navigator.onLine) {
+                    netEl.innerText = "Offline ⚠️";
+                } else if (conn) {
+                    netEl.innerText = `${conn.effectiveType || 'online'} • ${conn.downlink || 'fast'} Mbps`;
+                } else {
+                    netEl.innerText = "Online (Normal)";
+                }
+            }
+
+            // Decoders in DOM
+            if (decEl) {
+                const activeVideos = Array.from(document.querySelectorAll('video')).filter(v => v.src && !v.paused).length;
+                const totalVideosInDom = document.querySelectorAll('video').length;
+                decEl.innerText = `${activeVideos} active playing (${totalVideosInDom} in DOM)`;
+            }
+
+            // Visible clips
+            if (visEl) {
+                const count = document.querySelectorAll('#clips-grid > div').length;
+                visEl.innerText = `${count} visible (${allClipsData.length} total in memory)`;
+            }
+        }
+
+        function initSSE() {
+            if (!window.EventSource) return;
+            try {
+                const es = new EventSource('/api/stream/events');
+                es.onmessage = function(e) {
+                    try {
+                        const data = JSON.parse(e.data);
+                        if (data.type === 'telemetry') {
+                            const cpuEl = document.getElementById('cpu-stat');
+                            const gpuEl = document.getElementById('gpu-stat');
+                            const heatEl = document.getElementById('heat-stat');
+                            if (cpuEl) cpuEl.innerText = `${data.cpu}%`;
+                            if (gpuEl) gpuEl.innerText = `${data.gpu}%`;
+                            if (heatEl) heatEl.innerText = `${data.temp}°C`;
+                        }
+                    } catch (err) {}
+                };
+                es.onerror = function() {
+                    console.log("[SSE] Connection paused, falling back to polling");
+                };
+            } catch (err) {
+                console.log("[SSE] Not supported:", err);
+            }
+        }
+
         // Init
         initCropDragHandlers();
         fetchRates();
@@ -3234,13 +3661,9 @@
         fetchHunt();
         buildWeekGrid();
 
-        setInterval(fetchStats, 2000);
-        setInterval(fetchStreamers, 10000);
-        setInterval(fetchNotifications, 5000);
-        setInterval(fetchCommunityClips, 25000);
-        setInterval(fetchClips, 8000);
-        setInterval(fetchLogs, 5000);
-        setInterval(fetchHunt, 60000);
+        // PRD Phase 4: Automatic Device Adaptation & Server-Sent Events
+        detectAndAdaptDevice();
+        initSSE();
     </script>
 </body>
 </html>

@@ -309,6 +309,51 @@ def get_all_clips():
     conn.close()
     return [dict(r) for r in rows]
 
+def get_paginated_clips(page: int = 1, limit: int = 24, category: str = None, approval_status: str = None, search: str = None):
+    """Paginated & filtered query for ultra-fast, low-memory clip listing."""
+    conn = get_connection()
+    conditions = []
+    params = []
+    if category and category != 'all':
+        conditions.append("category = ?")
+        params.append(category)
+    if approval_status and approval_status != 'all':
+        if approval_status == 'active':
+            conditions.append("approval_status != 'rejected'")
+        elif approval_status == 'saved':
+            conditions.append("(ai_score >= 80 AND approval_status != 'rejected')")
+        elif approval_status == 'review':
+            conditions.append("(ai_score < 80 AND ai_score >= 60 AND approval_status != 'rejected')")
+        else:
+            conditions.append("approval_status = ?")
+            params.append(approval_status)
+    if search and search.strip():
+        s = f"%{search.strip()}%"
+        conditions.append("(streamer LIKE ? OR title LIKE ? OR story_summary LIKE ?)")
+        params.extend([s, s, s])
+    
+    where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+    
+    # Count total matching rows
+    count_sql = f"SELECT COUNT(*) FROM clips{where_clause}"
+    total = conn.execute(count_sql, params).fetchone()[0]
+    
+    limit = max(1, min(limit, 100))
+    offset = max(0, (page - 1) * limit)
+    query_sql = f"SELECT * FROM clips{where_clause} ORDER BY id DESC LIMIT ? OFFSET ?"
+    query_params = params + [limit, offset]
+    rows = conn.execute(query_sql, query_params).fetchall()
+    conn.close()
+    
+    pages = (total + limit - 1) // limit if limit > 0 else 1
+    return {
+        "clips": [dict(r) for r in rows],
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "pages": pages
+    }
+
 def get_recent_logs(limit: int = 50):
     conn = get_connection()
     rows = conn.execute("SELECT * FROM system_logs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()

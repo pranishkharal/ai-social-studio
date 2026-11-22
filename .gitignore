@@ -51,3 +51,7 @@ overlays/
 # they are binaries the snapshot push cannot carry, and they re-download.
 *.tflite
 *.task
+
+# Backups & cached thumbnails
+backups/
+static/thumbnails/

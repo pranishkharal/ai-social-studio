@@ -1,7 +1,7 @@
 {
-  "name": "AI Social Studio v1.0",
-  "short_name": "SocialStudio",
-  "description": "Continuous Kick Live Stream Clipping, AI Scoring & Social Media Publishing Platform",
+  "name": "AI Social Studio — Kick Live Clipping",
+  "short_name": "KickClipper",
+  "description": "Ultra-light cloud-powered Kick stream clipping and vertical video publisher",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0b0e14",
@@ -20,5 +20,6 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "categories": ["utilities", "video", "productivity"]
 }
