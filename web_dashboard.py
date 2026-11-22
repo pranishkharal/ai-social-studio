@@ -1,4 +1,7 @@
 import os
+import sys
+import time
+import subprocess
 import psutil
 import threading
 from pathlib import Path
@@ -193,14 +196,70 @@ async def home(request: Request):
     # in Starlette 1.x and raises TypeError there.
     return templates.TemplateResponse(request, "index.html")
 
+# Real-time hardware telemetry cache (CPU, GPU, and System Heat)
+_hardware_stats = {
+    "cpu_percent": 0.0,
+    "gpu_percent": 0,
+    "gpu_temp": 0,
+    "gpu_name": "NVIDIA GPU",
+    "vram_used_mb": 0,
+    "vram_total_mb": 0,
+    "has_gpu": False,
+    "last_updated": 0
+}
+
+def _query_hardware_telemetry_now():
+    try:
+        if _hardware_stats.get("cpu_percent", 0.0) == 0.0:
+            _hardware_stats["cpu_percent"] = round(psutil.cpu_percent(interval=0.1), 1)
+
+        res = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=2,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            parts = [p.strip() for p in res.stdout.strip().split("\n")[0].split(",")]
+            if len(parts) >= 5:
+                _hardware_stats["gpu_name"] = parts[0]
+                _hardware_stats["gpu_percent"] = int(parts[1])
+                _hardware_stats["gpu_temp"] = int(parts[2])
+                _hardware_stats["vram_used_mb"] = int(parts[3])
+                _hardware_stats["vram_total_mb"] = int(parts[4])
+                _hardware_stats["has_gpu"] = True
+    except Exception:
+        pass
+
+# Run initial query immediately on import
+_query_hardware_telemetry_now()
+
+def _update_hardware_telemetry_loop():
+    psutil.cpu_percent(interval=None)
+    while True:
+        try:
+            # 1-second accurate CPU sampling
+            cpu = round(psutil.cpu_percent(interval=1.0), 1)
+            _hardware_stats["cpu_percent"] = cpu
+            _query_hardware_telemetry_now()
+            _hardware_stats["last_updated"] = time.time()
+        except Exception:
+            time.sleep(2)
+
+threading.Thread(target=_update_hardware_telemetry_loop, daemon=True).start()
+
 @app.get("/api/stats")
 async def get_stats():
-    """Live resource telemetry demonstrating the ultra-light footprint."""
+    """Live resource telemetry with CPU %, GPU %, System Heat, and VRAM."""
     process = psutil.Process()
     ram_mb = round(process.memory_info().rss / (1024 * 1024), 1)
-    cpu_percent = round(psutil.cpu_percent(interval=None), 1)
     return {
-        "cpu_percent": cpu_percent,
+        "cpu_percent": _hardware_stats.get("cpu_percent", 0.0),
+        "gpu_percent": _hardware_stats.get("gpu_percent", 0),
+        "gpu_temp": _hardware_stats.get("gpu_temp", 0),
+        "gpu_name": _hardware_stats.get("gpu_name", "GPU"),
+        "vram_used_mb": _hardware_stats.get("vram_used_mb", 0),
+        "vram_total_mb": _hardware_stats.get("vram_total_mb", 0),
+        "has_gpu": _hardware_stats.get("has_gpu", False),
         "ram_mb": ram_mb,
         "active_recorders": len(monitor.active_recorders)
     }

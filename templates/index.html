@@ -62,10 +62,31 @@
                 <span>Install Web App</span>
             </button>
 
-            <!-- CPU Telemetry -->
-            <div class="flex items-center space-x-2 bg-gray-900/80 px-3 py-1.5 rounded-lg border border-gray-800 text-xs">
-                <span class="text-gray-400">CPU:</span>
-                <span id="cpu-stat" class="font-bold text-emerald-400 font-mono">--%</span>
+            <!-- Real Hardware Telemetry: CPU, GPU, System Heat -->
+            <div class="flex items-center space-x-2.5 bg-gray-900/90 px-3 py-1.5 rounded-xl border border-gray-800 text-xs shadow-inner">
+                <!-- CPU -->
+                <div class="flex items-center space-x-1" title="Real-time CPU Usage">
+                    <span class="text-gray-400 font-semibold">CPU:</span>
+                    <span id="cpu-stat" class="font-bold text-emerald-400 font-mono">--%</span>
+                </div>
+
+                <span class="text-gray-700">|</span>
+
+                <!-- GPU -->
+                <div class="flex items-center space-x-1" id="gpu-container" title="Real NVIDIA GPU Load">
+                    <span class="text-gray-400 font-semibold">GPU:</span>
+                    <span id="gpu-stat" class="font-bold text-cyan-400 font-mono">--%</span>
+                </div>
+
+                <span class="text-gray-700">|</span>
+
+                <!-- System Heat / Temp -->
+                <div class="flex items-center space-x-1.5" id="heat-container" title="Hardware Temperature Detection">
+                    <span id="heat-icon">🌡️</span>
+                    <span class="text-gray-400 font-semibold hidden md:inline">Heat:</span>
+                    <span id="heat-stat" class="font-bold text-emerald-400 font-mono">--°C</span>
+                    <span id="heat-badge" class="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">COOL</span>
+                </div>
             </div>
 
             <!-- Live Streamers Count -->
@@ -1698,8 +1719,59 @@
                 const res = await fetch('/api/stats');
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
-                const el = document.getElementById('cpu-stat');
-                if (el) el.innerText = (data.cpu_percent !== undefined ? data.cpu_percent : 0) + '%';
+
+                // CPU Telemetry
+                const cpuEl = document.getElementById('cpu-stat');
+                if (cpuEl) {
+                    const cpu = data.cpu_percent !== undefined ? data.cpu_percent : 0;
+                    cpuEl.innerText = cpu + '%';
+                    cpuEl.className = cpu > 80 ? 'font-bold text-red-400 font-mono' : cpu > 60 ? 'font-bold text-amber-400 font-mono' : 'font-bold text-emerald-400 font-mono';
+                }
+
+                // GPU Telemetry
+                const gpuEl = document.getElementById('gpu-stat');
+                const gpuContainer = document.getElementById('gpu-container');
+                if (gpuEl) {
+                    const gpu = data.gpu_percent !== undefined ? data.gpu_percent : 0;
+                    gpuEl.innerText = gpu + '%';
+                    gpuEl.className = gpu > 80 ? 'font-bold text-red-400 font-mono' : gpu > 60 ? 'font-bold text-amber-400 font-mono' : 'font-bold text-cyan-400 font-mono';
+                    if (gpuContainer && data.gpu_name) {
+                        gpuContainer.title = `${data.gpu_name} (VRAM: ${data.vram_used_mb || 0}MB / ${data.vram_total_mb || 0}MB)`;
+                    }
+                }
+
+                // System Heat / Temperature Detection
+                const heatEl = document.getElementById('heat-stat');
+                const badgeEl = document.getElementById('heat-badge');
+                const iconEl = document.getElementById('heat-icon');
+                if (heatEl) {
+                    const temp = data.gpu_temp || 0;
+                    heatEl.innerText = temp > 0 ? `${temp}°C` : 'Normal';
+
+                    if (badgeEl && iconEl) {
+                        if (temp <= 50) {
+                            badgeEl.className = 'text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-emerald-950 text-emerald-400 border border-emerald-800';
+                            badgeEl.innerText = 'COOL';
+                            heatEl.className = 'font-bold text-emerald-400 font-mono';
+                            iconEl.innerText = '❄️';
+                        } else if (temp <= 70) {
+                            badgeEl.className = 'text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-700';
+                            badgeEl.innerText = 'NORMAL';
+                            heatEl.className = 'font-bold text-emerald-300 font-mono';
+                            iconEl.innerText = '🌡️';
+                        } else if (temp <= 82) {
+                            badgeEl.className = 'text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-amber-950 text-amber-400 border border-amber-700';
+                            badgeEl.innerText = 'WARM';
+                            heatEl.className = 'font-bold text-amber-400 font-mono';
+                            iconEl.innerText = '⚠️';
+                        } else {
+                            badgeEl.className = 'text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-red-950 text-red-400 border border-red-700 animate-pulse';
+                            badgeEl.innerText = 'HOT';
+                            heatEl.className = 'font-bold text-red-400 font-mono';
+                            iconEl.innerText = '🔥';
+                        }
+                    }
+                }
             } catch (e) {
                 console.error("fetchStats error:", e);
                 setTimeout(fetchStats, 1000);
@@ -2835,7 +2907,7 @@
         fetchHunt();
         buildWeekGrid();
 
-        setInterval(fetchStats, 3000);
+        setInterval(fetchStats, 2000);
         setInterval(fetchStreamers, 10000);
         setInterval(fetchNotifications, 5000);
         setInterval(fetchCommunityClips, 25000);
