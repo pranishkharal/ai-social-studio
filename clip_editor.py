@@ -607,11 +607,12 @@ class ClipEditor:
         # filter — the render is unchanged and the post-render safety
         # pass still runs.
         loudnorm_stats = None
-        try:
-            from loudness import measure_loudnorm_stats
-            loudnorm_stats = measure_loudnorm_stats(source_path)
-        except Exception as e:
-            log_event("WARNING", "ClipEditor", f"Loudness measure failed, rendering without loudnorm: {e}")
+        if not custom_crop:
+            try:
+                from loudness import measure_loudnorm_stats
+                loudnorm_stats = measure_loudnorm_stats(source_path)
+            except Exception as e:
+                log_event("WARNING", "ClipEditor", f"Loudness measure failed, rendering without loudnorm: {e}")
 
         # 0. Get official full-width Kick Watermark overlay for this streamer
         watermark_png = generate_kick_watermark(streamer)
@@ -877,11 +878,16 @@ class ClipEditor:
                 log_event("WARNING", "ClipEditor", f"B-roll overlay failed, continuing without B-roll: {e}")
                 current_label = base_label
 
-        # 3. HDR Sharpness & Contrast Boost
+        # 3. HDR Contrast & Vibrancy Boost (Fast hardware-friendly filter)
         if hdr_sharpness:
-            filter_complex.append(
-                f"{current_label}unsharp=3:3:1.2:3:3:0.0,eq=contrast=1.06:saturation=1.12[hdr]"
-            )
+            if custom_crop:
+                filter_complex.append(
+                    f"{current_label}eq=contrast=1.06:saturation=1.10[hdr]"
+                )
+            else:
+                filter_complex.append(
+                    f"{current_label}unsharp=3:3:0.8:3:3:0.0,eq=contrast=1.06:saturation=1.12[hdr]"
+                )
             current_label = "[hdr]"
 
         # 4. Burn Full-Width Kick Watermark Bar (Spans 100% across the screen side-to-side)

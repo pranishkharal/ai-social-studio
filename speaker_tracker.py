@@ -392,7 +392,7 @@ class SpeakerTracker:
     # ------------------------------------------------------------------
     # Trajectory
     # ------------------------------------------------------------------
-    def analyze_video_trajectory(self, video_path: str, target_aspect: float = 9/16, sample_fps: int = 6, fallback_to_haar: bool = True) -> list:
+    def analyze_video_trajectory(self, video_path: str, target_aspect: float = 9/16, sample_fps: int = 3, fallback_to_haar: bool = True) -> list:
         """
         Analyzes video frames to track the active talking person(s).
         Returns a smoothed list of crop_x positions for the video duration.
@@ -547,7 +547,7 @@ class SpeakerTracker:
             smoothed.append(int(max(0, min(max_x, round(cam_x)))))
         return smoothed
 
-    def analyze_face_boxes(self, video_path: str, sample_fps: int = 6) -> list:
+    def analyze_face_boxes(self, video_path: str, sample_fps: int = 2) -> list:
         """
         Sampled face boxes in SOURCE coordinates, for face-aware
         banner placement (face_avoidance.py).

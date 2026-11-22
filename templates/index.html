@@ -2183,6 +2183,7 @@
                 });
                 
                 const isReady = c.status === 'ready_to_upload' || c.status === 'edited' || Boolean(c.edited_path && c.status !== 'processing');
+                const isDraft = c.status === 'ready_to_edit' || (!c.edited_path && c.status !== 'processing');
                 const videoSrc = isReady ? `/video/${c.id}` : '';
                 const score = c.ai_score || 85;
                 const scoreColor = score >= 80 ? 'text-[#53fc18] bg-emerald-950/60 border-emerald-800' : 'text-amber-400 bg-amber-950/60 border-amber-800';
@@ -2218,9 +2219,21 @@
                                        playsinline 
                                        controls 
                                        class="w-full h-full object-cover rounded-xl"></video>
+                            ` : isDraft ? `
+                                <div class="relative w-full h-full flex flex-col items-center justify-center p-3 text-center bg-gradient-to-b from-purple-950/40 to-black">
+                                    <video src="/video/${c.id}?raw=true" preload="metadata" muted class="absolute inset-0 w-full h-full object-cover opacity-35 pointer-events-none"></video>
+                                    <div class="relative z-10 flex flex-col items-center space-y-2">
+                                        <span class="text-[10px] font-mono font-bold bg-purple-950/90 text-purple-300 px-2.5 py-0.5 rounded-full border border-purple-700">✂️ RAW CAPTURE</span>
+                                        <button onclick="openVisualCropForClip(${c.id}, event)" class="px-3.5 py-2 rounded-xl bg-[#53fc18] hover:bg-[#46d614] text-black font-black text-xs shadow-lg transition flex items-center space-x-1.5">
+                                            <span>✂️</span>
+                                            <span>Open 9:16 Studio</span>
+                                        </button>
+                                        <span class="text-[10px] text-gray-400 font-mono">${c.duration || 30}s • Ready to Edit</span>
+                                    </div>
+                                </div>
                             ` : `
                                 <div class="text-center p-4">
-                                    <div class="animate-spin text-2xl mb-1">⏳</div>
+                                    <div class="animate-spin text-2xl mb-1">⚡</div>
                                     <div class="text-xs text-yellow-400 font-mono">Rendering Vertical Clip...</div>
                                 </div>
                             `}

@@ -307,13 +307,19 @@ class ClipPipeline:
 
         try:
             # 3. Transcribe dialogue with Whisper (PG sanitized)
-            # streamer / game feed the vocabulary prompt so Whisper
-            # hears names and slang right (gta6-clipper feature 9).
-            log_event("INFO", "Pipeline", f"Transcribing audio for clip #{clip_id}")
-            transcript_data = self.ai.transcribe_clip(
-                raw_clip_path, streamer=streamer, game=game)
-            transcript_text = transcript_data.get("full_text", "")
-            words = transcript_data.get("words", [])
+            # Only run Whisper when auto_captions or silence_trim is requested,
+            # saving 30-45s of CPU compute on low-end devices when captions are disabled.
+            if auto_captions or silence_trim:
+                log_event("INFO", "Pipeline", f"Transcribing audio with Whisper for clip #{clip_id}")
+                transcript_data = self.ai.transcribe_clip(
+                    raw_clip_path, streamer=streamer, game=game)
+                transcript_text = transcript_data.get("full_text", "")
+                words = transcript_data.get("words", [])
+            else:
+                log_event("INFO", "Pipeline", f"Skipping Whisper transcription (captions disabled for speed) for clip #{clip_id}")
+                transcript_data = {"full_text": "", "words": []}
+                transcript_text = ""
+                words = []
             self._mark(clip_id, "transcribed", {"transcript": transcript_text, "words": words})
 
             # 4. Analyze Storyline, Highlight Category & AI Scoring (PRD Section 6 & 7)

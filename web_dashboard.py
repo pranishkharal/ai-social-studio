@@ -770,6 +770,8 @@ async def visual_editor_render(req: VisualEditorRenderReq, background_tasks: Bac
         try:
             from clip_editor import ClipEditor
             editor = ClipEditor()
+            if req.clip_id:
+                update_clip_status(req.clip_id, "processing")
             log_event("INFO", "VisualEditor", f"Rendering custom {req.layout} crop for {safe_streamer} (trim {req.start_time:.1f}s - {req.end_time or 0:.1f}s)")
             
             editor.edit_clip(
@@ -789,29 +791,41 @@ async def visual_editor_render(req: VisualEditorRenderReq, background_tasks: Bac
             )
 
             dur = (req.end_time - req.start_time) if (req.end_time and req.end_time > req.start_time) else 30.0
-            new_clip_id = add_clip({
-                "streamer": safe_streamer,
-                "title": req.title or banner_text,
-                "hook_banner": banner_text,
-                "caption": f"the moment {safe_streamer} was SPEECHLESS after this happened live on Kick ❤️‍🩹😭 #{safe_streamer} #kick #fyp",
-                "tags": f"#{safe_streamer} #kick #fyp #viral",
-                "category": "Viral Potential",
-                "approval_status": "approved",
-                "status": "ready_to_upload",
-                "raw_path": src_file,
-                "edited_path": out_file,
-                "duration": dur,
-                "ai_score": 95
-            })
+            if req.clip_id:
+                target_clip_id = req.clip_id
+                update_clip_status(
+                    target_clip_id,
+                    status="ready_to_upload",
+                    edited_path=out_file,
+                    title=req.title or banner_text,
+                    hook_banner=banner_text,
+                    approval_status="approved",
+                    ai_score=95
+                )
+            else:
+                target_clip_id = add_clip({
+                    "streamer": safe_streamer,
+                    "title": req.title or banner_text,
+                    "hook_banner": banner_text,
+                    "caption": f"the moment {safe_streamer} was SPEECHLESS after this happened live on Kick ❤️‍🩹😭 #{safe_streamer} #kick #fyp",
+                    "tags": f"#{safe_streamer} #kick #fyp #viral",
+                    "category": "Viral Potential",
+                    "approval_status": "approved",
+                    "status": "ready_to_upload",
+                    "raw_path": src_file,
+                    "edited_path": out_file,
+                    "duration": dur,
+                    "ai_score": 95
+                })
 
             add_notification(
                 title=f"🎬 9:16 Custom Crop Ready: {req.title or banner_text}",
                 message=f"Custom {req.layout} 9:16 vertical video rendered successfully! Ready to download or publish.",
                 notif_type="highlight_ready",
                 streamer=safe_streamer,
-                clip_id=new_clip_id
+                clip_id=target_clip_id
             )
-            log_event("INFO", "VisualEditor", f"Custom 9:16 render finished! Saved as Clip #{new_clip_id}")
+            log_event("INFO", "VisualEditor", f"Custom 9:16 render finished! Saved as Clip #{target_clip_id}")
         except Exception as e:
             log_event("ERROR", "VisualEditor", f"Custom render failed: {e}")
 

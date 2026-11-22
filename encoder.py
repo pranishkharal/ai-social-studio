@@ -25,19 +25,22 @@ output-side only.
 
 import subprocess
 
-ENCODER_PRIORITY = ("h264_nvenc", "h264_amf", "h264_vaapi", "libx264")
+ENCODER_PRIORITY = ("h264_nvenc", "h264_qsv", "h264_amf", "h264_mf", "h264_vaapi", "libx264")
 
 # Output-side ffmpeg args per encoder (used AFTER "-c:v <codec>").
 ENCODER_ARGS = {
-    # NVENC: p4 preset (good quality/speed balance), VBR with CQ 23.
-    "h264_nvenc": ["-preset", "p4", "-rc", "vbr", "-cq", "23"],
-    # AMF: balanced quality preset, VBR 8M target (1080p vertical).
-    "h264_amf": ["-quality", "balanced", "-rc", "vbr", "-b:v", "8M"],
-    # VAAPI: bitrate-controlled; see VAAPI_INPUT_ARGS for the required
-    # input-side device setup.
-    "h264_vaapi": ["-b:v", "8M"],
-    # CPU fallback — matches the current ClipEditor behaviour exactly.
-    "libx264": ["-preset", "veryfast", "-crf", "21"],
+    # NVENC (NVIDIA): p1 preset (fastest hardware encoding, 10x-20x realtime, lowest GPU strain).
+    "h264_nvenc": ["-preset", "p1", "-tune", "ll", "-rc", "vbr", "-cq", "23"],
+    # Intel QuickSync (Intel Core laptops with integrated Iris/UHD graphics):
+    "h264_qsv": ["-preset", "veryfast", "-b:v", "6M"],
+    # AMD AMF: speed quality preset, VBR 6M target.
+    "h264_amf": ["-quality", "speed", "-rc", "vbr", "-b:v", "6M"],
+    # Windows MediaFoundation hardware encoder:
+    "h264_mf": ["-b:v", "6M"],
+    # VAAPI: bitrate-controlled.
+    "h264_vaapi": ["-b:v", "6M"],
+    # CPU fallback (low-end laptops with no GPU): ultrafast multithreaded encoding.
+    "libx264": ["-preset", "ultrafast", "-tune", "fastdecode", "-threads", "0", "-crf", "22"],
 }
 
 # VAAPI input-side args (must appear BEFORE the -i they apply to) plus the
