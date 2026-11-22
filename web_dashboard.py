@@ -660,6 +660,8 @@ class ConvertKickClipReq(BaseModel):
     duration: Optional[int] = 30
     clip_id: Optional[str] = None
     layout: Optional[str] = None
+    custom_caption: Optional[str] = None
+    caption_position: Optional[str] = "top"
 
 
 @app.post("/api/kick/convert-clip")
@@ -673,6 +675,10 @@ async def convert_kick_clip(req: ConvertKickClipReq, background_tasks: Backgroun
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             raw_path = str(CLIPS_DIR / f"{safe_streamer}_kick_{safe_id}_{stamp}_raw.mp4")
             chosen_layout = req.layout if req.layout else None
+            # Only use custom_caption if user EXPLICITLY entered one in the dashboard!
+            # Never use the viewer's raw Kick clip title (e.g. "yash kle gand", "waadawd") as the hook caption.
+            explicit_caption = req.custom_caption.strip() if (req.custom_caption and req.custom_caption.strip()) else None
+            caption_pos = req.caption_position if req.caption_position else "top"
             
             log_event("INFO", "KickCommunity", f"Downloading Kick community clip: {req.title or req.clip_url}")
             # Stream-copy directly from Kick m3u8 playlist to local mp4
@@ -683,19 +689,20 @@ async def convert_kick_clip(req: ConvertKickClipReq, background_tasks: Backgroun
                 log_event("ERROR", "KickCommunity", f"Failed to download Kick clip: {p.stderr.decode('utf-8', 'replace')}")
                 return
             
-            # Process moment through pipeline (9:16 Crop + Hook Banner)
-            log_event("INFO", "KickCommunity", f"Processing Kick clip #{req.clip_id} ({target_dur}s, layout={chosen_layout or 'auto'}) through AI Social Studio...")
+            # Process moment through pipeline (9:16 Crop + AI Hook Banner)
+            log_event("INFO", "KickCommunity", f"Processing Kick clip #{req.clip_id} ({target_dur}s, layout={chosen_layout or 'auto'}, caption={explicit_caption or 'AI Generated'}) through AI Social Studio...")
             pipeline.process_moment(
                 streamer=safe_streamer,
                 raw_clip_path=raw_path,
                 duration=target_dur,
                 layout=chosen_layout,
-                custom_caption=req.title,
+                custom_caption=explicit_caption,
+                caption_position=caption_pos,
                 permission_confirmed=True
             )
             add_notification(
                 title=f"🎬 Kick Clip Converted: {req.title or 'Viewer Clip'}",
-                message=f"Successfully edited into 9:16 vertical video with Caption Guide hook!",
+                message=f"Successfully edited into 9:16 vertical video with AI Hook Banner!",
                 notif_type="highlight_ready",
                 streamer=safe_streamer
             )

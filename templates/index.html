@@ -1378,7 +1378,10 @@
             video.src = clipUrl;
             video.load();
 
-            document.getElementById('crop-clip-title').value = title || `${streamer.toUpperCase()} WAS SPEECHLESS 💀`;
+            const defaultHook = `${streamer.toUpperCase()} COULD NOT BELIEVE THIS HAPPENED 💀`;
+            const customCapInput = document.getElementById('custom-caption-input');
+            const chosenTitle = (customCapInput && customCapInput.value.trim()) ? customCapInput.value.trim() : defaultHook;
+            document.getElementById('crop-clip-title').value = chosenTitle;
             document.getElementById('canvas-preview-watermark').innerText = `KICK.COM / ${streamer.toUpperCase()}`;
 
             const dur = Math.max(10, Math.floor(duration || 30));
@@ -1656,6 +1659,10 @@
             const title = decodeURIComponent(encodedTitle);
             const layoutSelect = document.getElementById('video-layout-select');
             const layout = layoutSelect ? layoutSelect.value : 'speaker_tracking';
+            const captionInput = document.getElementById('custom-caption-input');
+            const customCaption = captionInput ? captionInput.value.trim() : '';
+            const captionPosSelect = document.getElementById('caption-position-select');
+            const captionPos = captionPosSelect ? captionPosSelect.value : 'top';
 
             if (btnEl) {
                 btnEl.disabled = true;
@@ -1663,7 +1670,7 @@
                 btnEl.innerHTML = `<span class="animate-spin">⏳</span><span>Converting to 9:16...</span>`;
             }
 
-            showToast(`⚡ Downloading Kick clip & converting to ${layout} 9:16...`);
+            showToast(`⚡ Downloading Kick clip & generating AI hook...`);
 
             try {
                 const res = await fetch('/api/kick/convert-clip', {
@@ -1675,7 +1682,9 @@
                         title: title,
                         duration: duration || 30,
                         clip_id: decodeURIComponent(clipId),
-                        layout: layout
+                        layout: layout,
+                        custom_caption: customCaption,
+                        caption_position: captionPos
                     })
                 });
                 const data = await res.json();
