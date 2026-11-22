@@ -716,15 +716,45 @@ def detect_facecam_box(video_path: str, samples: int = 12) -> dict:
     med_x = float(np.median([h[0] for h in hits]))
     med_y = float(np.median([h[1] for h in hits]))
 
+    # Corner box tuning: ensure NO gameplay gap/bleed in facecam
+    # Standard streamer facecam is ~16:10 or 4:3 anchored flush to corner
     box_w = 0.30
-    box_h = 0.38
-    cam_x = max(0.0, min(1.0 - box_w, med_x - box_w / 2))
-    cam_y = max(0.0, min(1.0 - box_h, med_y - box_h / 2))
+    box_h = 0.30
+
+    if best_corner == "bottom-right":
+        cam_x = max(0.65, min(1.0 - box_w, med_x - box_w / 2))
+        cam_y = 0.70  # default flush to bottom
+        try:
+            # Refine top horizontal boundary using edge detection
+            cap.set(cv2.CAP_PROP_POS_MSEC, duration * 500)
+            ok, mid_frame = cap.read()
+            if ok:
+                gray_corner = cv2.cvtColor(mid_frame, cv2.COLOR_BGR2GRAY)
+                grad_y = cv2.Sobel(gray_corner, cv2.CV_64F, 0, 1, ksize=3)
+                y_min, y_max = int(h_orig * 0.65), int(h_orig * 0.80)
+                x_min = int(w_orig * 0.72)
+                row_diff = [np.mean(np.abs(grad_y[y, x_min:int(w_orig)])) for y in range(y_min, y_max)]
+                edge_y = y_min + np.argmax(row_diff)
+                edge_rel_y = edge_y / h_orig
+                if 0.68 <= edge_rel_y <= 0.76:
+                    cam_y = edge_rel_y
+                    box_h = 1.0 - cam_y
+        except Exception:
+            pass
+    elif best_corner == "bottom-left":
+        cam_x = max(0.0, min(0.35, med_x - box_w / 2))
+        cam_y = 0.70
+    elif best_corner == "top-right":
+        cam_x = max(0.65, min(1.0 - box_w, med_x - box_w / 2))
+        cam_y = 0.02
+    else:  # top-left
+        cam_x = 0.02
+        cam_y = 0.02
 
     return {
         "corner": best_corner,
         "cam": {"x": round(cam_x, 3), "y": round(cam_y, 3), "w": round(box_w, 3), "h": round(box_h, 3)},
-        "game": {"x": 0.10, "y": 0.05, "w": 0.80, "h": 0.85}
+        "game": {"x": 0.08, "y": 0.05, "w": 0.84, "h": 0.88}
     }
 
 

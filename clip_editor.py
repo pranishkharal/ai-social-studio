@@ -239,6 +239,12 @@ class ClipEditor:
                 # zone, over the gameplay — still well above the Kick
                 # watermark bar (y 1420) and the subtitle zone.
                 box_y = 800
+            elif layout == "split":
+                # Gaming Split Layout: Streamer occupies top 35% (y 0-672).
+                # The face is centered in the lower-middle of the facecam.
+                # Place the viral hook banner cleanly in the upper safe space (y 110),
+                # safely above the streamer's head and never covering their face or gameplay.
+                box_y = 110
             else:
                 # Full vertical crop / speaker tracking: place cleanly below top TikTok tabs
                 box_y = 260
@@ -636,7 +642,7 @@ class ClipEditor:
         if layout == "split_screen" and not split_speakers:
             log_event("WARNING", "ClipEditor", "split_screen needs split_speakers; falling back to speaker_tracking")
             layout = "speaker_tracking"
-        split_divider_y = 960  # Clean 50/50 split
+        split_divider_y = 672  # 35% Streamer on Top, 65% Gameplay on Bottom (Pro Gaming Layout)
         base_label = "[base]"
         # Face-aware placement (FEATURE 1): sampled face boxes + the
         # trajectory actually used for the crop, both in rendered
