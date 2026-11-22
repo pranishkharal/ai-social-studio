@@ -263,27 +263,90 @@
                         </button>
                     </form>
 
-                    <!-- Fast Instant Clip Buttons (15s, 25s, 35s) -->
-                    <div class="pt-2">
-                        <div class="text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-2">Capture Instant Slice:</div>
-                        <div class="grid grid-cols-3 gap-2">
-                            <button onclick="triggerManualClip(15)" class="bg-gray-800 hover:bg-gray-700 text-xs font-semibold py-3 rounded-xl border border-gray-700 transition flex flex-col items-center">
-                                <span>Fast Hook</span>
-                                <span class="text-[#53fc18] font-bold">15s</span>
-                            </button>
-                            <button onclick="triggerManualClip(25)" class="bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700 text-xs font-semibold py-3 rounded-xl transition flex flex-col items-center shadow-lg">
-                                <span>Sweet Spot</span>
-                                <span class="text-[#53fc18] font-bold">25s (Opt)</span>
-                            </button>
-                            <button onclick="triggerManualClip(35)" class="bg-gray-800 hover:bg-gray-700 text-xs font-semibold py-3 rounded-xl border border-gray-700 transition flex flex-col items-center">
-                                <span>Storyline</span>
-                                <span class="text-[#53fc18] font-bold">35s</span>
-                            </button>
+                    <!-- Interactive Stream Clipper (Kick-Style Manual Trimmer) -->
+                    <div class="pt-2 border-t border-gray-800/80 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <div class="text-[11px] font-bold text-gray-300 uppercase tracking-wider flex items-center space-x-1.5">
+                                <span>✂️</span>
+                                <span>Create Clip (Manual Trimmer)</span>
+                            </div>
+                            <span class="text-[10px] font-mono text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-800">Kick-Style</span>
                         </div>
-                        <button type="button" onclick="openVisualCropForLiveStream()" class="w-full mt-2.5 bg-purple-950/70 hover:bg-purple-900 border border-purple-700 text-purple-200 text-xs font-bold py-2 rounded-xl transition flex items-center justify-center space-x-1.5 shadow">
-                            <span>✂️ Open Visual Clip Studio</span>
-                            <span class="text-[10px] text-purple-300 font-mono">(Dual-Crop Facecam & Game)</span>
-                        </button>
+
+                        <!-- Clip Title Input (Like Kick Create Clip modal) -->
+                        <div>
+                            <div class="flex items-center justify-between text-[11px] text-gray-400 mb-1">
+                                <span>Clip Title (optional):</span>
+                                <span id="live-clip-title-count" class="font-mono text-gray-500">0/50</span>
+                            </div>
+                            <input type="text" id="live-clip-title" maxlength="50" oninput="document.getElementById('live-clip-title-count').innerText = this.value.length + '/50'" 
+                                   placeholder="Add a title to your clip (e.g. INSANE MOMENT)" 
+                                   class="w-full bg-black/50 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
+                        </div>
+
+                        <!-- Timeline Scrubber & Duration Selector -->
+                        <div class="bg-black/40 p-3 rounded-2xl border border-gray-800 space-y-2">
+                            <div class="flex items-center justify-between text-xs">
+                                <span class="text-gray-400 font-medium">Clip Length:</span>
+                                <span id="live-clip-duration-text" class="text-[#53fc18] font-mono font-extrabold text-sm">30s / 180s (0:00 - 0:30)</span>
+                            </div>
+
+                            <!-- Kick-style Timeline Ticks Graphic -->
+                            <div class="relative w-full h-4 bg-gray-950 rounded border border-gray-800 overflow-hidden flex items-center justify-between px-1">
+                                <div class="w-0.5 h-2.5 bg-gray-700"></div>
+                                <div class="w-0.5 h-1.5 bg-gray-800"></div>
+                                <div class="w-0.5 h-1.5 bg-gray-800"></div>
+                                <div class="w-0.5 h-2 bg-gray-700"></div>
+                                <div class="w-0.5 h-1.5 bg-gray-800"></div>
+                                <div class="w-0.5 h-1.5 bg-gray-800"></div>
+                                <div class="w-0.5 h-2.5 bg-gray-700"></div>
+                                <div class="w-0.5 h-1.5 bg-gray-800"></div>
+                                <div class="w-0.5 h-1.5 bg-gray-800"></div>
+                                <div class="w-0.5 h-2 bg-gray-700"></div>
+                                <div class="w-0.5 h-1.5 bg-gray-800"></div>
+                                <div class="w-0.5 h-1.5 bg-gray-800"></div>
+                                <div class="w-0.5 h-2.5 bg-[#53fc18]"></div>
+                                <div class="w-0.5 h-1.5 bg-gray-800"></div>
+                                <div class="w-0.5 h-1.5 bg-gray-800"></div>
+                                <div class="w-0.5 h-2 bg-gray-700"></div>
+                                <div class="w-0.5 h-1.5 bg-gray-800"></div>
+                                <div class="w-0.5 h-2.5 bg-gray-700"></div>
+                            </div>
+
+                            <!-- Range Slider (5s to 180s) -->
+                            <input type="range" id="live-clip-duration" min="5" max="180" step="1" value="30" oninput="updateLiveClipDurationDisplay()" class="w-full accent-[#53fc18] cursor-pointer">
+
+                            <!-- Quick Preset Duration Chips -->
+                            <div class="flex items-center justify-between gap-1 pt-1 flex-wrap">
+                                <button type="button" onclick="setLiveClipDuration(15)" class="px-2 py-1 rounded-lg text-[10px] font-bold bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition">15s</button>
+                                <button type="button" onclick="setLiveClipDuration(25)" class="px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-950 hover:bg-emerald-900 text-[#53fc18] border border-emerald-800 transition">25s Opt</button>
+                                <button type="button" onclick="setLiveClipDuration(35)" class="px-2 py-1 rounded-lg text-[10px] font-bold bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition">35s</button>
+                                <button type="button" onclick="setLiveClipDuration(60)" class="px-2 py-1 rounded-lg text-[10px] font-bold bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition">60s</button>
+                                <button type="button" onclick="setLiveClipDuration(120)" class="px-2 py-1 rounded-lg text-[10px] font-bold bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition">2m</button>
+                                <button type="button" onclick="setLiveClipDuration(180)" class="px-2 py-1 rounded-lg text-[10px] font-bold bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition">3m Max</button>
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="space-y-2">
+                            <!-- Primary 1-Click: Slice & Open in Visual Studio -->
+                            <button type="button" id="btn-slice-open-studio" onclick="sliceAndOpenVisualStudio()" 
+                                    class="w-full py-3 rounded-xl bg-[#53fc18] hover:bg-[#46d614] text-black text-xs font-black transition flex items-center justify-center space-x-2 shadow-[0_0_15px_rgba(83,252,24,0.3)]">
+                                <span>✂️</span>
+                                <span>Clip & Open in 9:16 Visual Studio</span>
+                            </button>
+
+                            <div class="grid grid-cols-2 gap-2">
+                                <button type="button" onclick="triggerManualClipFromSlider()" 
+                                        class="py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-xs font-bold text-gray-300 hover:text-white border border-gray-700 transition flex items-center justify-center space-x-1">
+                                    <span>⚡ Fast Render</span>
+                                </button>
+                                <button type="button" onclick="openVisualCropForLiveStream()" 
+                                        class="py-2 rounded-xl bg-purple-950/70 hover:bg-purple-900 border border-purple-700 text-purple-200 text-xs font-bold transition flex items-center justify-center space-x-1">
+                                    <span>🎬 Open Studio</span>
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -819,12 +882,16 @@
                 
                 <!-- Video Timeline Controls -->
                 <div class="space-y-1.5">
-                    <div class="flex items-center justify-between text-xs text-gray-300">
-                        <div class="flex items-center space-x-2">
+                    <div class="flex items-center justify-between text-xs text-gray-300 flex-wrap gap-2">
+                        <div class="flex items-center space-x-1.5">
                             <button type="button" onclick="toggleCropVideoPlay()" id="btn-crop-play" class="px-3 py-1 bg-gray-800 hover:bg-gray-700 rounded-lg font-semibold text-xs transition flex items-center space-x-1">
                                 <span>▶️ Play</span>
                             </button>
-                            <span id="crop-time-display" class="font-mono text-gray-400">0:00 / 0:30</span>
+                            <button type="button" onclick="stepCropFrame(-1.0)" title="-1 Second" class="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded text-xs text-gray-300 font-mono">◀ -1s</button>
+                            <button type="button" onclick="stepCropFrame(-0.1)" title="Previous Frame" class="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded text-xs text-gray-300 font-mono">◀ Frame</button>
+                            <button type="button" onclick="stepCropFrame(0.1)" title="Next Frame" class="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded text-xs text-gray-300 font-mono">Frame ▶</button>
+                            <button type="button" onclick="stepCropFrame(1.0)" title="+1 Second" class="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded text-xs text-gray-300 font-mono">+1s ▶</button>
+                            <span id="crop-time-display" class="font-mono text-gray-400 ml-1">0:00 / 0:30</span>
                         </div>
                         <div class="flex items-center space-x-2">
                             <span class="text-gray-400">Selected Trim:</span>
@@ -832,15 +899,21 @@
                         </div>
                     </div>
 
-                    <!-- Range Slider Inputs -->
+                    <!-- Range Slider Inputs with Frame Set Buttons -->
                     <div class="grid grid-cols-2 gap-4 items-center bg-black/40 p-2.5 rounded-xl border border-gray-800 text-xs">
                         <div>
-                            <label class="text-[11px] text-gray-400 block mb-1">Trim Start: <span id="val-trim-start" class="font-mono text-white">0.0s</span></label>
-                            <input type="range" id="slider-trim-start" min="0" max="60" step="0.5" value="0" oninput="onTrimStartChanged()" class="w-full accent-[#53fc18]">
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="text-[11px] text-gray-400">Trim Start: <span id="val-trim-start" class="font-mono text-white">0.0s</span></label>
+                                <button type="button" onclick="setTrimStartToCurrent()" class="text-[10px] text-purple-300 bg-purple-950/80 px-2 py-0.5 rounded border border-purple-800 hover:bg-purple-900 font-mono transition">[| Cut Here</button>
+                            </div>
+                            <input type="range" id="slider-trim-start" min="0" max="60" step="0.1" value="0" oninput="onTrimStartChanged()" class="w-full accent-[#53fc18]">
                         </div>
                         <div>
-                            <label class="text-[11px] text-gray-400 block mb-1">Trim End: <span id="val-trim-end" class="font-mono text-white">30.0s</span></label>
-                            <input type="range" id="slider-trim-end" min="0" max="60" step="0.5" value="30" oninput="onTrimEndChanged()" class="w-full accent-[#53fc18]">
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="text-[11px] text-gray-400">Trim End: <span id="val-trim-end" class="font-mono text-white">30.0s</span></label>
+                                <button type="button" onclick="setTrimEndToCurrent()" class="text-[10px] text-cyan-300 bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-800 hover:bg-cyan-900 font-mono transition">|] Cut Here</button>
+                            </div>
+                            <input type="range" id="slider-trim-end" min="0" max="60" step="0.1" value="30" oninput="onTrimEndChanged()" class="w-full accent-[#53fc18]">
                         </div>
                     </div>
                 </div>
@@ -1152,6 +1225,42 @@
             }
         }
 
+        function stepCropFrame(deltaSeconds) {
+            const video = document.getElementById('crop-video-element');
+            if (!video) return;
+            video.pause();
+            const btn = document.getElementById('btn-crop-play');
+            if (btn) btn.innerHTML = `<span>▶️ Play</span>`;
+            const dur = video.duration || cropState.duration || 30;
+            const targetTime = Math.max(0, Math.min(dur, (video.currentTime || 0) + deltaSeconds));
+            video.currentTime = targetTime;
+            updateTimeDisplay(targetTime);
+        }
+
+        function setTrimStartToCurrent() {
+            const video = document.getElementById('crop-video-element');
+            if (!video) return;
+            const current = parseFloat(video.currentTime.toFixed(1));
+            const startSlider = document.getElementById('slider-trim-start');
+            if (startSlider) {
+                startSlider.value = current;
+                onTrimStartChanged();
+                showToast(`Trim start set to ${current}s`);
+            }
+        }
+
+        function setTrimEndToCurrent() {
+            const video = document.getElementById('crop-video-element');
+            if (!video) return;
+            const current = parseFloat(video.currentTime.toFixed(1));
+            const endSlider = document.getElementById('slider-trim-end');
+            if (endSlider) {
+                endSlider.value = current;
+                onTrimEndChanged();
+                showToast(`Trim end set to ${current}s`);
+            }
+        }
+
         function onTrimStartChanged() {
             const val = parseFloat(document.getElementById('slider-trim-start').value);
             cropState.startTime = val;
@@ -1284,11 +1393,78 @@
             video.play().catch(() => {});
         }
 
+        function setLiveClipDuration(sec) {
+            const slider = document.getElementById('live-clip-duration');
+            if (slider) {
+                slider.value = sec;
+                updateLiveClipDurationDisplay();
+            }
+        }
+
+        function updateLiveClipDurationDisplay() {
+            const slider = document.getElementById('live-clip-duration');
+            const label = document.getElementById('live-clip-duration-text');
+            if (!slider || !label) return;
+            const sec = parseInt(slider.value) || 30;
+            const m = Math.floor(sec / 60);
+            const s = sec % 60;
+            const timeFormatted = `${m}:${s < 10 ? '0' : ''}${s}`;
+            label.innerText = `${sec}s / 180s (0:00 - ${timeFormatted})`;
+        }
+
+        async function sliceAndOpenVisualStudio() {
+            const streamerSelect = document.getElementById('active-target-streamer');
+            const streamer = streamerSelect && streamerSelect.value ? streamerSelect.value : null;
+            if (!streamer) {
+                showToast("Please select a live streamer first!");
+                return;
+            }
+            const duration = parseInt(document.getElementById('live-clip-duration')?.value) || 30;
+            const title = document.getElementById('live-clip-title')?.value.trim() || "";
+
+            const btn = document.getElementById('btn-slice-open-studio');
+            const prevHtml = btn ? btn.innerHTML : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = `<span class="animate-spin">⏳</span><span>Extracting ${duration}s from Live Stream...</span>`;
+            }
+            showToast(`Capturing ${duration}s live slice for ${streamer.toUpperCase()}...`);
+
+            try {
+                const res = await fetch('/api/clips/slice-now', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ streamer, duration, title })
+                });
+                const data = await res.json();
+                if (res.ok && data.clip_id) {
+                    showToast(`✅ Captured ${duration}s clip! Opening in Visual Clip Studio...`);
+                    await openVisualCropForClip(data.clip_id);
+                    fetchClips();
+                } else {
+                    showToast(`Failed: ${data.detail || 'Could not slice live stream'}`);
+                }
+            } catch (err) {
+                console.error("sliceAndOpenVisualStudio error:", err);
+                showToast("Error capturing live clip: " + err.message);
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = prevHtml;
+                }
+            }
+        }
+
+        function triggerManualClipFromSlider() {
+            const duration = parseInt(document.getElementById('live-clip-duration')?.value) || 30;
+            triggerManualClip(duration);
+        }
+
         function openVisualCropForLiveStream() {
             if (allClipsData && allClipsData.length > 0) {
                 openVisualCropForClip(allClipsData[0].id);
             } else {
-                showToast("Capture a live slice (Sweet Spot 25s) first to edit in Visual Studio!");
+                sliceAndOpenVisualStudio();
             }
         }
 

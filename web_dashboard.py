@@ -145,6 +145,11 @@ async def generate_discord_command(req: DiscordCmdReq):
         "rate_per_1m": info["cpm"] * 10,
         "streamer": req.streamer
     }
+class SliceNowReq(BaseModel):
+    streamer: str
+    duration: int = 30
+    title: Optional[str] = None
+
 class ClipTriggerReq(BaseModel):
     streamer: str
     duration: Optional[int] = None  # None = the streamer's profile decides
@@ -326,6 +331,44 @@ async def get_clip(clip_id: int):
     if not row:
         raise HTTPException(status_code=404, detail="Clip not found")
     return dict(row)
+
+@app.post("/api/clips/slice-now")
+async def slice_now_endpoint(req: SliceNowReq):
+    """
+    Slices live stream footage directly with custom duration and title,
+    saves it to DB, and returns the clip_id immediately so the user can
+    edit it in the 9:16 Visual Studio with no waiting.
+    """
+    streamer = req.streamer.strip().lower()
+    duration = max(5, min(req.duration, 180))
+    raw_path = monitor.extract_recent_clip(streamer, duration)
+    if not raw_path or not os.path.exists(raw_path):
+        raise HTTPException(status_code=500, detail=f"Failed to capture live footage for '{streamer}'. Please verify the stream is currently live.")
+    
+    clip_title = (req.title or "").strip() or f"{streamer.upper()} LIVE MOMENT"
+    clip_id = add_clip({
+        "streamer": streamer,
+        "title": clip_title,
+        "story_summary": "Manual live stream cut",
+        "hook_banner": clip_title,
+        "caption": f"Watch #{streamer} on live stream! #gaming #viral",
+        "tags": f"#{streamer},#kick,#twitch,#live,#viral",
+        "hype_score": 88,
+        "trigger_reason": "kick_style_clipper",
+        "duration": duration,
+        "raw_path": raw_path,
+        "edited_path": None,
+        "status": "ready_to_edit"
+    })
+    
+    return {
+        "status": "success",
+        "clip_id": clip_id,
+        "streamer": streamer,
+        "duration": duration,
+        "title": clip_title,
+        "raw_path": raw_path
+    }
 
 @app.post("/api/clips/trigger")
 async def trigger_clip(req: ClipTriggerReq, background_tasks: BackgroundTasks):
