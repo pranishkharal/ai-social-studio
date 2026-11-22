@@ -39,7 +39,7 @@
     "caption_style": "prestige",
     "clip_seconds": 60,
     "hype_db_threshold": -16.0,
-    "layout": "split",
+    "layout": "speaker_tracking",
     "platforms": [
       "tiktok",
       "instagram"

@@ -866,11 +866,11 @@
 
                     <!-- Layout Switcher Under Preview -->
                     <div class="flex items-center space-x-2 bg-black/60 p-1 rounded-xl border border-gray-800 text-xs">
-                        <button type="button" id="btn-layout-split" onclick="setCropLayout('split')" class="px-3 py-1.5 rounded-lg font-bold bg-[#53fc18] text-black transition flex items-center space-x-1">
-                            <span>[ 日 ] Split 9:16</span>
+                        <button type="button" id="btn-layout-full" onclick="setCropLayout('full')" class="px-3 py-1.5 rounded-lg font-bold bg-[#53fc18] text-black transition flex items-center space-x-1">
+                            <span>[ ▯ ] Full 9:16 (IRL / Full Frame)</span>
                         </button>
-                        <button type="button" id="btn-layout-full" onclick="setCropLayout('full')" class="px-3 py-1.5 rounded-lg font-medium text-gray-300 hover:text-white transition flex items-center space-x-1">
-                            <span>[ ▯ ] Full 9:16</span>
+                        <button type="button" id="btn-layout-split" onclick="setCropLayout('split')" class="px-3 py-1.5 rounded-lg font-medium text-gray-300 hover:text-white transition flex items-center space-x-1">
+                            <span>[ 日 ] Split 9:16 (Gaming: Face + Game)</span>
                         </button>
                     </div>
                 </div>
@@ -972,16 +972,24 @@
             const btnSplit = document.getElementById('btn-layout-split');
             const btnFull = document.getElementById('btn-layout-full');
             const camBox = document.getElementById('crop-box-cam');
+            const gameBox = document.getElementById('crop-box-game');
+            const gameSpan = gameBox ? gameBox.querySelector('span') : null;
             
             if (layout === 'split') {
-                btnSplit.className = "px-3 py-1.5 rounded-lg font-bold bg-[#53fc18] text-black transition flex items-center space-x-1";
-                btnFull.className = "px-3 py-1.5 rounded-lg font-medium text-gray-300 hover:text-white transition flex items-center space-x-1";
+                if (btnSplit) btnSplit.className = "px-3 py-1.5 rounded-lg font-bold bg-[#53fc18] text-black transition flex items-center space-x-1";
+                if (btnFull) btnFull.className = "px-3 py-1.5 rounded-lg font-medium text-gray-300 hover:text-white transition flex items-center space-x-1";
                 if (camBox) camBox.classList.remove('hidden');
+                if (gameSpan) gameSpan.innerText = "🎮 Gameplay (Bottom 9:16)";
+                cropState.game = { x: 0.10, y: 0.10, w: 0.80, h: 0.80 };
             } else {
-                btnFull.className = "px-3 py-1.5 rounded-lg font-bold bg-[#53fc18] text-black transition flex items-center space-x-1";
-                btnSplit.className = "px-3 py-1.5 rounded-lg font-medium text-gray-300 hover:text-white transition flex items-center space-x-1";
+                if (btnFull) btnFull.className = "px-3 py-1.5 rounded-lg font-bold bg-[#53fc18] text-black transition flex items-center space-x-1";
+                if (btnSplit) btnSplit.className = "px-3 py-1.5 rounded-lg font-medium text-gray-300 hover:text-white transition flex items-center space-x-1";
                 if (camBox) camBox.classList.add('hidden');
+                if (gameSpan) gameSpan.innerText = "📱 Full 9:16 Frame (Drag to Position)";
+                // Center 9:16 box in 16:9 frame (1080 * 9/16 / 1920 ~= 0.316)
+                cropState.game = { x: 0.34, y: 0.0, w: 0.32, h: 1.0 };
             }
+            updateCropBoxesDOM();
         }
 
         function applyCropPreset(preset) {
@@ -1342,6 +1350,9 @@
                     video.play().catch(() => {});
                 };
 
+                const layoutSelect = document.getElementById('video-layout-select');
+                const defaultLayout = (layoutSelect && layoutSelect.value === 'split') ? 'split' : 'full';
+                setCropLayout(defaultLayout);
                 initCropDragHandlers();
                 updateCropBoxesDOM();
                 document.getElementById('visual-crop-modal').classList.remove('hidden');
@@ -1386,6 +1397,9 @@
             document.getElementById('val-trim-end').innerText = cropState.endTime.toFixed(1) + 's';
             document.getElementById('crop-trim-duration').innerText = cropState.endTime.toFixed(1) + 's';
 
+            const layoutSelect = document.getElementById('video-layout-select');
+            const defaultLayout = (layoutSelect && layoutSelect.value === 'split') ? 'split' : 'full';
+            setCropLayout(defaultLayout);
             initCropDragHandlers();
             updateCropBoxesDOM();
             document.getElementById('visual-crop-modal').classList.remove('hidden');
@@ -1640,6 +1654,8 @@
             const streamer = streamerSelect && streamerSelect.value ? streamerSelect.value : 'westcol';
             const clipUrl = decodeURIComponent(encodedUrl);
             const title = decodeURIComponent(encodedTitle);
+            const layoutSelect = document.getElementById('video-layout-select');
+            const layout = layoutSelect ? layoutSelect.value : 'speaker_tracking';
 
             if (btnEl) {
                 btnEl.disabled = true;
@@ -1647,7 +1663,7 @@
                 btnEl.innerHTML = `<span class="animate-spin">⏳</span><span>Converting to 9:16...</span>`;
             }
 
-            showToast(`⚡ Downloading Kick clip & converting with AI Caption Guide...`);
+            showToast(`⚡ Downloading Kick clip & converting to ${layout} 9:16...`);
 
             try {
                 const res = await fetch('/api/kick/convert-clip', {
@@ -1658,7 +1674,8 @@
                         clip_url: clipUrl,
                         title: title,
                         duration: duration || 30,
-                        clip_id: decodeURIComponent(clipId)
+                        clip_id: decodeURIComponent(clipId),
+                        layout: layout
                     })
                 });
                 const data = await res.json();

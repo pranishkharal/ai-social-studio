@@ -659,6 +659,7 @@ class ConvertKickClipReq(BaseModel):
     title: Optional[str] = None
     duration: Optional[int] = 30
     clip_id: Optional[str] = None
+    layout: Optional[str] = None
 
 
 @app.post("/api/kick/convert-clip")
@@ -671,6 +672,7 @@ async def convert_kick_clip(req: ConvertKickClipReq, background_tasks: Backgroun
             safe_id = re.sub(r'[^a-zA-Z0-9_-]', '', req.clip_id or 'clip')
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             raw_path = str(CLIPS_DIR / f"{safe_streamer}_kick_{safe_id}_{stamp}_raw.mp4")
+            chosen_layout = req.layout if req.layout else None
             
             log_event("INFO", "KickCommunity", f"Downloading Kick community clip: {req.title or req.clip_url}")
             # Stream-copy directly from Kick m3u8 playlist to local mp4
@@ -682,11 +684,12 @@ async def convert_kick_clip(req: ConvertKickClipReq, background_tasks: Backgroun
                 return
             
             # Process moment through pipeline (9:16 Crop + Hook Banner)
-            log_event("INFO", "KickCommunity", f"Processing Kick clip #{req.clip_id} ({target_dur}s) through AI Social Studio...")
+            log_event("INFO", "KickCommunity", f"Processing Kick clip #{req.clip_id} ({target_dur}s, layout={chosen_layout or 'auto'}) through AI Social Studio...")
             pipeline.process_moment(
                 streamer=safe_streamer,
                 raw_clip_path=raw_path,
                 duration=target_dur,
+                layout=chosen_layout,
                 custom_caption=req.title,
                 permission_confirmed=True
             )
