@@ -385,12 +385,12 @@ def _render_calls(ffmpeg_calls):
 def test_edit_clip_profile_layout_when_none(editor_setup):
     editor, raw, tmp_path, ffmpeg_calls, _ = editor_setup
     out = tmp_path / "edited.mp4"
-    editor.edit_clip(str(raw), str(out), streamer="westcol", layout=None,
+    editor.edit_clip(str(raw), str(out), streamer="meltt", layout=None,
                      generate_thumbnail=False)
     renders = _render_calls(ffmpeg_calls)
     assert len(renders) == 1
     filter_str = " ".join(renders[0])
-    # westcol profile layout is "split" -> vstack in the filter chain
+    # meltt profile layout is "split" -> vstack in the filter chain
     assert "vstack" in filter_str
 
 

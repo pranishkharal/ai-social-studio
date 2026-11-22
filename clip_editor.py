@@ -622,7 +622,7 @@ class ClipEditor:
         
         # 1. Anti-Saturation Mirror Filter
         source_label = "[0:v]"
-        if mirror:
+        if mirror and not custom_crop:
             filter_complex.append(f"[0:v]hflip[mirrored]")
             source_label = "[mirrored]"
 
@@ -718,6 +718,17 @@ class ClipEditor:
             # Full-width Kick Watermark bar placed flush right above TikTok username (y: 1530)
             wm_y = 1420
         elif layout == "split":
+            # Auto-detect streamer facecam corner if no custom crop was supplied
+            if not custom_crop:
+                try:
+                    from speaker_tracker import detect_facecam_box
+                    detected = detect_facecam_box(raw_clip_path)
+                    if detected and "cam" in detected:
+                        custom_crop = detected
+                        log_event("INFO", "ClipEditor", f"Auto-detected streamer facecam in {detected.get('corner', 'corner')}: {detected['cam']}")
+                except Exception as e:
+                    log_event("WARNING", "ClipEditor", f"Facecam auto-detect skipped: {e}")
+
             if custom_crop and ("cam" in custom_crop or "game" in custom_crop):
                 cc = custom_crop.get("cam", {"x": 0.65, "y": 0.05, "w": 0.3, "h": 0.35})
                 cg = custom_crop.get("game", {"x": 0.1, "y": 0.1, "w": 0.8, "h": 0.8})
@@ -731,17 +742,22 @@ class ClipEditor:
                 gw = max(0.05, min(1.0 - gx, float(cg.get("w", 0.8))))
                 gh = max(0.05, min(1.0 - gy, float(cg.get("h", 0.8))))
 
+                top_flip = ",hflip" if mirror else ""
+                bot_flip = ",hflip" if mirror else ""
+
                 filter_complex.append(
-                    f"{source_label}split=2[cam_in][game_in];"
-                    f"[cam_in]crop=iw*{cw:.4f}:ih*{ch:.4f}:iw*{cx:.4f}:ih*{cy:.4f},scale={VIDEO_WIDTH}:{split_divider_y}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{split_divider_y}[top];"
-                    f"[game_in]crop=iw*{gw:.4f}:ih*{gh:.4f}:iw*{gx:.4f}:ih*{gy:.4f},scale={VIDEO_WIDTH}:{VIDEO_HEIGHT - split_divider_y}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{VIDEO_HEIGHT - split_divider_y}[bottom];"
+                    f"[0:v]split=2[cam_in][game_in];"
+                    f"[cam_in]crop=iw*{cw:.4f}:ih*{ch:.4f}:iw*{cx:.4f}:ih*{cy:.4f},scale={VIDEO_WIDTH}:{split_divider_y}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{split_divider_y}{top_flip}[top];"
+                    f"[game_in]crop=iw*{gw:.4f}:ih*{gh:.4f}:iw*{gx:.4f}:ih*{gy:.4f},scale={VIDEO_WIDTH}:{VIDEO_HEIGHT - split_divider_y}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{VIDEO_HEIGHT - split_divider_y}{bot_flip}[bottom];"
                     f"[top][bottom]vstack[base]"
                 )
             else:
+                top_flip = ",hflip" if mirror else ""
+                bot_flip = ",hflip" if mirror else ""
                 filter_complex.append(
-                    f"{source_label}split=2[cam][game];"
-                    f"[cam]crop=iw*0.5:ih*0.6:0:0,scale={VIDEO_WIDTH}:{split_divider_y}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{split_divider_y}[top];"
-                    f"[game]crop=iw:ih*0.7:0:ih*0.3,scale={VIDEO_WIDTH}:{VIDEO_HEIGHT - split_divider_y}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{VIDEO_HEIGHT - split_divider_y}[bottom];"
+                    f"[0:v]split=2[cam][game];"
+                    f"[cam]crop=iw*0.5:ih*0.6:0:0,scale={VIDEO_WIDTH}:{split_divider_y}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{split_divider_y}{top_flip}[top];"
+                    f"[game]crop=iw:ih*0.7:0:ih*0.3,scale={VIDEO_WIDTH}:{VIDEO_HEIGHT - split_divider_y}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{VIDEO_HEIGHT - split_divider_y}{bot_flip}[bottom];"
                     f"[top][bottom]vstack[base]"
                 )
             # Watermark flush across the middle divider seam
@@ -753,8 +769,9 @@ class ClipEditor:
                 gy = max(0.0, min(0.95, float(cg.get("y", 0.0))))
                 gw = max(0.05, min(1.0 - gx, float(cg.get("w", 0.5625))))
                 gh = max(0.05, min(1.0 - gy, float(cg.get("h", 1.0))))
+                full_flip = ",hflip" if mirror else ""
                 filter_complex.append(
-                    f"{source_label}crop=iw*{gw:.4f}:ih*{gh:.4f}:iw*{gx:.4f}:ih*{gy:.4f},scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{VIDEO_HEIGHT}[base]"
+                    f"[0:v]crop=iw*{gw:.4f}:ih*{gh:.4f}:iw*{gx:.4f}:ih*{gy:.4f},scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{VIDEO_HEIGHT}{full_flip}[base]"
                 )
             else:
                 filter_complex.append(

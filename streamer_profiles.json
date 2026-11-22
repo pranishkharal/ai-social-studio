@@ -55,5 +55,16 @@
       "tiktok",
       "youtube"
     ]
+  },
+  "meltt": {
+    "auto_clip_enabled": true,
+    "caption_style": "prestige",
+    "clip_seconds": 30,
+    "hype_db_threshold": -15.0,
+    "layout": "split",
+    "platforms": [
+      "tiktok",
+      "youtube"
+    ]
   }
 }

@@ -717,6 +717,38 @@ async def convert_kick_clip(req: ConvertKickClipReq, background_tasks: Backgroun
 # Visual Clip Studio (Interactive Dual-Crop Facecam + Gameplay & 9:16 Preview)
 # ---------------------------------------------------------------------------
 
+class DetectFacecamReq(BaseModel):
+    clip_id: Optional[int] = None
+    raw_path: Optional[str] = None
+
+
+@app.post("/api/editor/detect-facecam")
+async def detect_facecam_endpoint(req: DetectFacecamReq):
+    """Auto-detects streamer facecam corner and returns suggested cam + game bounding boxes."""
+    src_file = None
+    if req.clip_id:
+        conn = get_connection()
+        row = conn.execute("SELECT raw_path, edited_path FROM clips WHERE id = ?", (req.clip_id,)).fetchone()
+        conn.close()
+        if row:
+            src_file = row["raw_path"] or row["edited_path"]
+    elif req.raw_path and os.path.exists(req.raw_path):
+        src_file = req.raw_path
+
+    if not src_file or not os.path.exists(src_file):
+        raise HTTPException(status_code=400, detail="Source video not found")
+
+    try:
+        from speaker_tracker import detect_facecam_box
+        result = detect_facecam_box(src_file)
+        if result:
+            return {"status": "success", **result}
+        return {"status": "not_found", "message": "No corner facecam found"}
+    except Exception as e:
+        log_event("WARNING", "VisualEditor", f"Facecam detection error: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 class VisualEditorRenderReq(BaseModel):
     clip_id: Optional[int] = None
     raw_path: Optional[str] = None

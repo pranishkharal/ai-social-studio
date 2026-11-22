@@ -799,11 +799,15 @@
                         </span>
                         
                         <!-- Quick Position Presets -->
-                        <div class="flex items-center space-x-1 text-[11px]">
+                        <div class="flex items-center space-x-1.5 text-[11px] flex-wrap gap-1">
                             <span class="text-gray-500 text-[10px]">Presets:</span>
-                            <button type="button" onclick="applyCropPreset('top-right')" class="px-2 py-0.5 rounded bg-gray-800 hover:bg-purple-950 text-gray-300 hover:text-purple-300 transition text-[10px]">↗ Top-R</button>
                             <button type="button" onclick="applyCropPreset('top-left')" class="px-2 py-0.5 rounded bg-gray-800 hover:bg-purple-950 text-gray-300 hover:text-purple-300 transition text-[10px]">↖ Top-L</button>
+                            <button type="button" onclick="applyCropPreset('top-right')" class="px-2 py-0.5 rounded bg-gray-800 hover:bg-purple-950 text-gray-300 hover:text-purple-300 transition text-[10px]">↗ Top-R</button>
+                            <button type="button" onclick="applyCropPreset('bottom-left')" class="px-2 py-0.5 rounded bg-gray-800 hover:bg-purple-950 text-gray-300 hover:text-purple-300 transition text-[10px]">↙ Bot-L</button>
                             <button type="button" onclick="applyCropPreset('bottom-right')" class="px-2 py-0.5 rounded bg-gray-800 hover:bg-purple-950 text-gray-300 hover:text-purple-300 transition text-[10px]">↘ Bot-R</button>
+                            <button type="button" id="btn-auto-detect-facecam" onclick="autoDetectFacecam()" class="px-2.5 py-0.5 rounded bg-purple-600 hover:bg-purple-500 text-white font-bold transition text-[10px] flex items-center space-x-1 shadow ml-1">
+                                <span>⚡ Auto-Detect Facecam</span>
+                            </button>
                         </div>
                     </div>
 
@@ -999,12 +1003,44 @@
             } else if (preset === 'top-left') {
                 cropState.cam = { x: 0.04, y: 0.05, w: 0.28, h: 0.35 };
                 cropState.game = { x: 0.10, y: 0.10, w: 0.80, h: 0.80 };
+            } else if (preset === 'bottom-left') {
+                cropState.cam = { x: 0.04, y: 0.58, w: 0.28, h: 0.35 };
+                cropState.game = { x: 0.10, y: 0.05, w: 0.80, h: 0.80 };
             } else if (preset === 'bottom-right') {
                 cropState.cam = { x: 0.68, y: 0.58, w: 0.28, h: 0.35 };
                 cropState.game = { x: 0.10, y: 0.05, w: 0.80, h: 0.80 };
             }
             updateCropBoxesDOM();
             showToast(`Applied ${preset} camera preset`);
+        }
+
+        async function autoDetectFacecam() {
+            const btn = document.getElementById('btn-auto-detect-facecam');
+            if (btn) btn.innerHTML = '<span>⏳ Detecting...</span>';
+            try {
+                const payload = {};
+                if (cropState.clipId) payload.clip_id = cropState.clipId;
+                else if (cropState.rawPath) payload.raw_path = cropState.rawPath;
+
+                const res = await fetch('/api/editor/detect-facecam', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.status === 'success' && data.cam) {
+                    cropState.cam = data.cam;
+                    if (data.game) cropState.game = data.game;
+                    updateCropBoxesDOM();
+                    showToast(`🎯 Streamer facecam auto-detected in ${data.corner || 'corner'}!`);
+                } else {
+                    showToast(data.message || 'No corner facecam detected, keeping manual position.');
+                }
+            } catch (e) {
+                showToast('Facecam detection request failed');
+            } finally {
+                if (btn) btn.innerHTML = '<span>⚡ Auto-Detect Facecam</span>';
+            }
         }
 
         function updateCropBoxesDOM() {

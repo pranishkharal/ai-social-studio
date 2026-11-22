@@ -639,6 +639,95 @@ class SpeakerTracker:
             self._mp_detector = None
         self._active_backend = None
 
+
+def detect_facecam_box(video_path: str, samples: int = 12) -> dict:
+    """Scans video corner quadrants across sampled frames to automatically detect
+    a gaming streamer's stationary webcam/facecam box vs gameplay.
+
+    Returns dict with keys:
+        'corner': 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left',
+        'cam': {'x': float, 'y': float, 'w': float, 'h': float},
+        'game': {'x': float, 'y': float, 'w': float, 'h': float}
+    or None if no persistent corner facecam is detected.
+    """
+    try:
+        import cv2
+    except ImportError:
+        return None
+
+    # Locate frontal face cascade
+    model_candidates = [
+        Path(__file__).resolve().parent / "models" / "haarcascade_frontalface_default.xml",
+        Path("models") / "haarcascade_frontalface_default.xml"
+    ]
+    if hasattr(cv2, "data") and hasattr(cv2.data, "haarcascades"):
+        model_candidates.append(Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml")
+
+    cascade_path = None
+    for p in model_candidates:
+        if p.exists():
+            cascade_path = str(p)
+            break
+
+    if not cascade_path:
+        return None
+
+    cascade = cv2.CascadeClassifier(cascade_path)
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        return None
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration = total_frames / fps
+    w_orig = cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1920.0
+    h_orig = cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 1080.0
+
+    corner_hits = {"bottom-right": [], "bottom-left": [], "top-right": [], "top-left": []}
+
+    for i in range(samples):
+        t = (i + 0.5) / samples * duration
+        cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
+        ret, frame = cap.read()
+        if not ret:
+            continue
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(35, 35))
+        for (x, y, w, h) in faces:
+            nx = (x + w / 2) / w_orig
+            ny = (y + h / 2) / h_orig
+            nw = w / w_orig
+            nh = h / h_orig
+            if nx > 0.60 and ny > 0.50:
+                corner_hits["bottom-right"].append((nx, ny, nw, nh))
+            elif nx < 0.40 and ny > 0.50:
+                corner_hits["bottom-left"].append((nx, ny, nw, nh))
+            elif nx > 0.60 and ny < 0.50:
+                corner_hits["top-right"].append((nx, ny, nw, nh))
+            elif nx < 0.40 and ny < 0.50:
+                corner_hits["top-left"].append((nx, ny, nw, nh))
+    cap.release()
+
+    best_corner = max(corner_hits, key=lambda k: len(corner_hits[k]))
+    hits = corner_hits[best_corner]
+    if len(hits) < 3:
+        return None
+
+    med_x = float(np.median([h[0] for h in hits]))
+    med_y = float(np.median([h[1] for h in hits]))
+
+    box_w = 0.30
+    box_h = 0.38
+    cam_x = max(0.0, min(1.0 - box_w, med_x - box_w / 2))
+    cam_y = max(0.0, min(1.0 - box_h, med_y - box_h / 2))
+
+    return {
+        "corner": best_corner,
+        "cam": {"x": round(cam_x, 3), "y": round(cam_y, 3), "w": round(box_w, 3), "h": round(box_h, 3)},
+        "game": {"x": 0.10, "y": 0.05, "w": 0.80, "h": 0.85}
+    }
+
+
 if __name__ == "__main__":
     import sys
     tracker = SpeakerTracker("models")
