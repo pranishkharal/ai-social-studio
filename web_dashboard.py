@@ -818,6 +818,7 @@ async def visual_editor_render(req: VisualEditorRenderReq, background_tasks: Bac
                 target_clip_id = add_clip({
                     "streamer": safe_streamer,
                     "title": req.title or banner_text,
+                    "story_summary": f"Custom {req.layout} 9:16 crop of {safe_streamer}",
                     "hook_banner": banner_text,
                     "caption": f"the moment {safe_streamer} was SPEECHLESS after this happened live on Kick ❤️‍🩹😭 #{safe_streamer} #kick #fyp",
                     "tags": f"#{safe_streamer} #kick #fyp #viral",
@@ -827,6 +828,8 @@ async def visual_editor_render(req: VisualEditorRenderReq, background_tasks: Bac
                     "raw_path": src_file,
                     "edited_path": out_file,
                     "duration": dur,
+                    "hype_score": 90.0,
+                    "trigger_reason": "Visual Studio 9:16 Custom Crop",
                     "ai_score": 95
                 })
 

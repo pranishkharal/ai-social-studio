@@ -139,10 +139,24 @@ def update_streamer_status(data: dict):
 def add_clip(clip_data: dict) -> int:
     conn = get_connection()
     cursor = conn.cursor()
+    defaults = {
+        "title": "Stream Highlight",
+        "story_summary": "Live moment captured from stream",
+        "hook_banner": "BRO WAS SPEECHLESS... 🚨",
+        "caption": "",
+        "tags": "",
+        "hype_score": 85.0,
+        "trigger_reason": "Manual crop render",
+        "duration": 30.0,
+        "raw_path": None,
+        "edited_path": None,
+        "status": "ready_to_upload"
+    }
+    full_data = {**defaults, **clip_data}
     cursor.execute('''
         INSERT INTO clips (streamer, title, story_summary, hook_banner, caption, tags, hype_score, trigger_reason, duration, raw_path, edited_path, status)
         VALUES (:streamer, :title, :story_summary, :hook_banner, :caption, :tags, :hype_score, :trigger_reason, :duration, :raw_path, :edited_path, :status)
-    ''', clip_data)
+    ''', full_data)
     clip_id = cursor.lastrowid
     conn.commit()
     conn.close()
