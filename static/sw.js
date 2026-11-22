@@ -9,6 +9,10 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+    // Never intercept or cache API endpoints
+    if (event.request.url.includes('/api/')) {
+        return;
+    }
     // Pass-through network requests to live API
     event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
 });

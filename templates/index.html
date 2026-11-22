@@ -89,6 +89,66 @@
                 </div>
             </div>
 
+            <script>
+                (function() {
+                    async function bootstrapTelemetry() {
+                        try {
+                            const res = await fetch('/api/stats?t=' + Date.now(), { cache: 'no-store' });
+                            if (!res.ok) return;
+                            const data = await res.json();
+                            const cpuEl = document.getElementById('cpu-stat');
+                            if (cpuEl) {
+                                const cpu = data.cpu_percent !== undefined ? data.cpu_percent : 0;
+                                cpuEl.innerText = cpu + '%';
+                                cpuEl.className = cpu > 80 ? 'font-bold text-red-400 font-mono' : cpu > 60 ? 'font-bold text-amber-400 font-mono' : 'font-bold text-emerald-400 font-mono';
+                            }
+                            const gpuEl = document.getElementById('gpu-stat');
+                            const gpuContainer = document.getElementById('gpu-container');
+                            if (gpuEl) {
+                                const gpu = data.gpu_percent !== undefined ? data.gpu_percent : 0;
+                                gpuEl.innerText = gpu + '%';
+                                gpuEl.className = gpu > 80 ? 'font-bold text-red-400 font-mono' : gpu > 60 ? 'font-bold text-amber-400 font-mono' : 'font-bold text-cyan-400 font-mono';
+                                if (gpuContainer && data.gpu_name) {
+                                    gpuContainer.title = `${data.gpu_name} (VRAM: ${data.vram_used_mb || 0}MB / ${data.vram_total_mb || 0}MB)`;
+                                }
+                            }
+                            const heatEl = document.getElementById('heat-stat');
+                            const badgeEl = document.getElementById('heat-badge');
+                            const iconEl = document.getElementById('heat-icon');
+                            if (heatEl) {
+                                const temp = data.gpu_temp || 0;
+                                heatEl.innerText = temp > 0 ? `${temp}°C` : 'Normal';
+                                if (badgeEl && iconEl) {
+                                    if (temp <= 50) {
+                                        badgeEl.className = 'text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-emerald-950 text-emerald-400 border border-emerald-800';
+                                        badgeEl.innerText = 'COOL';
+                                        heatEl.className = 'font-bold text-emerald-400 font-mono';
+                                        iconEl.innerText = '❄️';
+                                    } else if (temp <= 70) {
+                                        badgeEl.className = 'text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-700';
+                                        badgeEl.innerText = 'NORMAL';
+                                        heatEl.className = 'font-bold text-emerald-300 font-mono';
+                                        iconEl.innerText = '🌡️';
+                                    } else if (temp <= 82) {
+                                        badgeEl.className = 'text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-amber-950 text-amber-400 border border-amber-700';
+                                        badgeEl.innerText = 'WARM';
+                                        heatEl.className = 'font-bold text-amber-400 font-mono';
+                                        iconEl.innerText = '⚠️';
+                                    } else {
+                                        badgeEl.className = 'text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-red-950 text-red-400 border border-red-700 animate-pulse';
+                                        badgeEl.innerText = 'HOT';
+                                        heatEl.className = 'font-bold text-red-400 font-mono';
+                                        iconEl.innerText = '🔥';
+                                    }
+                                }
+                            }
+                        } catch(e) {}
+                    }
+                    bootstrapTelemetry();
+                    setInterval(bootstrapTelemetry, 2000);
+                })();
+            </script>
+
             <!-- Live Streamers Count -->
             <div class="flex items-center space-x-2 bg-gray-900/80 px-3 py-1.5 rounded-lg border border-gray-800 text-xs">
                 <span class="w-2.5 h-2.5 rounded-full bg-[#53fc18] animate-pulse"></span>
@@ -2443,7 +2503,10 @@
             }
         }
 
-        document.getElementById('add-streamer-form').onsubmit = (e) => submitNewStreamer(e);
+        const _addStreamerForm = document.getElementById('add-streamer-form');
+        if (_addStreamerForm) {
+            _addStreamerForm.onsubmit = (e) => submitNewStreamer(e);
+        }
 
         function refreshClips() {
             fetchClips();
@@ -2580,63 +2643,75 @@
             }
         }
 
-        document.getElementById('record-submission-form').onsubmit = async (e) => {
-            e.preventDefault();
-            const body = {
-                clip_id: parseInt(document.getElementById('sub-clip-id').value) || null,
-                platform: document.getElementById('sub-platform').value,
-                video_url: document.getElementById('sub-video-url').value.trim(),
-                streamer: document.getElementById('sub-streamer').value.trim() || null
+        const _recSubForm = document.getElementById('record-submission-form');
+        if (_recSubForm) {
+            _recSubForm.onsubmit = async (e) => {
+                e.preventDefault();
+                const body = {
+                    clip_id: parseInt(document.getElementById('sub-clip-id')?.value) || null,
+                    platform: document.getElementById('sub-platform')?.value,
+                    video_url: document.getElementById('sub-video-url')?.value?.trim(),
+                    streamer: document.getElementById('sub-streamer')?.value?.trim() || null
+                };
+                if (!body.video_url) { showToast('Paste the posted video URL first.'); return; }
+                const res = await fetch('/api/earnings/submissions', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+                if (res.ok) { showToast('Submission recorded!'); fetchEarnings(); }
+                else { const d = await res.json().catch(() => ({})); showToast('Could not record submission: ' + (d.detail || res.status)); }
             };
-            if (!body.video_url) { showToast('Paste the posted video URL first.'); return; }
-            const res = await fetch('/api/earnings/submissions', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
-            if (res.ok) { showToast('Submission recorded!'); fetchEarnings(); }
-            else { const d = await res.json().catch(() => ({})); showToast('Could not record submission: ' + (d.detail || res.status)); }
-        };
+        }
 
-        document.getElementById('update-views-form').onsubmit = async (e) => {
-            e.preventDefault();
-            const subId = parseInt(document.getElementById('views-sub-id').value);
-            const viewsVal = document.getElementById('views-count').value;
-            const likesVal = document.getElementById('likes-count').value;
-            if (!subId) { showToast('Enter a submission ID.'); return; }
-            const res = await fetch(`/api/earnings/submissions/${subId}`, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
-                views: viewsVal === '' ? null : parseInt(viewsVal),
-                likes: likesVal === '' ? null : parseInt(likesVal)
-            })});
-            if (res.ok) { const d = await res.json(); showToast(`Views updated: ${num(d.views)} views, ${money(d.estimated_earnings)} estimated${d.views_pulled ? ' (pulled from YouTube)' : ''}.`); fetchEarnings(); }
-            else { const d = await res.json().catch(() => ({})); showToast('Could not update views: ' + (d.detail || res.status)); }
-        };
-
-        document.getElementById('enqueue-form').onsubmit = async (e) => {
-            e.preventDefault();
-            const clipId = parseInt(document.getElementById('queue-clip-id').value);
-            if (!clipId) { showToast('Enter a clip ID.'); return; }
-            const body = {
-                clip_id: clipId,
-                platform: document.getElementById('queue-platform').value,
-                scheduled_for: document.getElementById('queue-scheduled-for').value || null,
-                video_url: document.getElementById('queue-video-url').value.trim() || null
+        const _updViewsForm = document.getElementById('update-views-form');
+        if (_updViewsForm) {
+            _updViewsForm.onsubmit = async (e) => {
+                e.preventDefault();
+                const subId = parseInt(document.getElementById('views-sub-id')?.value);
+                const viewsVal = document.getElementById('views-count')?.value;
+                const likesVal = document.getElementById('likes-count')?.value;
+                if (!subId) { showToast('Enter a submission ID.'); return; }
+                const res = await fetch(`/api/earnings/submissions/${subId}`, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
+                    views: viewsVal === '' ? null : parseInt(viewsVal),
+                    likes: likesVal === '' ? null : parseInt(likesVal)
+                })});
+                if (res.ok) { const d = await res.json(); showToast(`Views updated: ${num(d.views)} views, ${money(d.estimated_earnings)} estimated${d.views_pulled ? ' (pulled from YouTube)' : ''}.`); fetchEarnings(); }
+                else { const d = await res.json().catch(() => ({})); showToast('Could not update views: ' + (d.detail || res.status)); }
             };
-            const res = await fetch('/api/queue', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
-            if (res.ok) { const d = await res.json(); showToast(`Clip #${clipId} queued for ${body.platform} at ${d.scheduled_for.replace('T', ' ').slice(0, 16)}.`); fetchQueue(); }
-            else { const d = await res.json().catch(() => ({})); showToast('Could not enqueue: ' + (d.detail || res.status)); }
-        };
+        }
 
-        document.getElementById('record-performance-form').onsubmit = async (e) => {
-            e.preventDefault();
-            const clipId = parseInt(document.getElementById('perf-clip-id').value);
-            const viewsVal = document.getElementById('perf-views').value;
-            if (!clipId || viewsVal === '') { showToast('Enter a clip ID and views.'); return; }
-            const res = await fetch('/api/analytics/performance', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
-                clip_id: clipId,
-                platform: document.getElementById('perf-platform').value,
-                views: parseInt(viewsVal),
-                likes: parseInt(document.getElementById('perf-likes').value) || 0
-            })});
-            if (res.ok) { showToast('Performance recorded — analytics updated.'); fetchAnalytics(); }
-            else { const d = await res.json().catch(() => ({})); showToast('Could not record performance: ' + (d.detail || res.status)); }
-        };
+        const _enqForm = document.getElementById('enqueue-form');
+        if (_enqForm) {
+            _enqForm.onsubmit = async (e) => {
+                e.preventDefault();
+                const clipId = parseInt(document.getElementById('queue-clip-id')?.value);
+                if (!clipId) { showToast('Enter a clip ID.'); return; }
+                const body = {
+                    clip_id: clipId,
+                    platform: document.getElementById('queue-platform')?.value,
+                    scheduled_for: document.getElementById('queue-scheduled-for')?.value || null,
+                    video_url: document.getElementById('queue-video-url')?.value?.trim() || null
+                };
+                const res = await fetch('/api/queue', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+                if (res.ok) { const d = await res.json(); showToast(`Clip #${clipId} queued for ${body.platform} at ${d.scheduled_for.replace('T', ' ').slice(0, 16)}.`); fetchQueue(); }
+                else { const d = await res.json().catch(() => ({})); showToast('Could not enqueue: ' + (d.detail || res.status)); }
+            };
+        }
+
+        const _recPerfForm = document.getElementById('record-performance-form');
+        if (_recPerfForm) {
+            _recPerfForm.onsubmit = async (e) => {
+                e.preventDefault();
+                const clipId = parseInt(document.getElementById('perf-clip-id')?.value);
+                const viewsVal = document.getElementById('perf-views')?.value;
+                if (!clipId || viewsVal === '') { showToast('Enter a clip ID and views.'); return; }
+                const res = await fetch('/api/analytics/performance', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
+                    clip_id: clipId,
+                    platform: document.getElementById('perf-platform')?.value,
+                    views: parseInt(viewsVal),
+                    likes: parseInt(document.getElementById('perf-likes')?.value) || 0
+                })});
+                if (res.ok) { showToast('Performance recorded — analytics updated.'); fetchAnalytics(); }
+                else { const d = await res.json().catch(() => ({})); showToast('Could not record performance: ' + (d.detail || res.status)); }
+            };
+        }
 
         // --- gta6-clipper upgrades: clip rules, live hunt, review UX, voice-over ---
 
