@@ -120,6 +120,7 @@ if AUTO_CLIP_ENABLED:
 # Request Models
 class StreamerReq(BaseModel):
     username: str
+    platform: Optional[str] = "kick"
 
 from kick_program import CREATOR_RATES, get_creator_info, format_bot_submission_command
 
@@ -210,11 +211,35 @@ async def list_streamers():
 
 @app.post("/api/streamers")
 async def add_streamer(req: StreamerReq):
-    uname = req.username.strip().lower()
+    raw_input = req.username.strip().lower()
+    platform = req.platform or "kick"
+    uname = raw_input
+
+    if uname.startswith("twitch:"):
+        platform = "twitch"
+        uname = uname[7:].strip()
+    elif uname.startswith("kick:"):
+        platform = "kick"
+        uname = uname[5:].strip()
+    elif "twitch.tv" in uname:
+        platform = "twitch"
+        uname = uname.split("twitch.tv/")[-1].split("/")[0].split("?")[0].strip()
+    elif "kick.com" in uname:
+        platform = "kick"
+        uname = uname.split("kick.com/")[-1].split("/")[0].split("?")[0].strip()
+
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO streamers (username, platform, is_live) VALUES (?, ?, 0) ON CONFLICT(username) DO UPDATE SET platform = excluded.platform",
+        (uname, platform)
+    )
+    conn.commit()
+    conn.close()
+
     if uname not in STREAMERS_TO_MONITOR:
         STREAMERS_TO_MONITOR.append(uname)
     info = monitor.fetch_channel_info(uname)
-    log_event("INFO", "WebAPI", f"Added streamer to watchlist: {uname}")
+    log_event("INFO", "WebAPI", f"Added {platform.upper()} streamer to watchlist: {uname}")
     return {"status": "added", "streamer": info}
 
 @app.delete("/api/streamers/{username}")

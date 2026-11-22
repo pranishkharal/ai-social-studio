@@ -110,23 +110,24 @@
                             <span class="w-3 h-3 rounded-full bg-red-500 animate-ping"></span>
                             <h2 class="text-sm font-bold uppercase tracking-wider text-white flex items-center space-x-2">
                                 <span>Live Stream Viewport:</span>
-                                <span id="current-streamer-heading" class="text-[#53fc18] font-mono lowercase">adinross</span>
+                                <span id="current-streamer-badge" class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 font-mono">KICK</span>
+                                <span id="current-streamer-heading" class="text-[#53fc18] font-mono lowercase">westcol</span>
                             </h2>
                         </div>
                         <div class="flex items-center space-x-2">
                             <button onclick="reloadPlayer()" class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1 rounded-lg border border-gray-700 transition">
                                 🔄 Refresh Player
                             </button>
-                            <button onclick="openExternalKick()" class="text-xs bg-emerald-950 hover:bg-emerald-900 text-emerald-400 border border-emerald-800 px-3 py-1 rounded-lg transition">
+                            <button id="btn-open-stream-tab" onclick="openExternalStream()" class="text-xs bg-emerald-950 hover:bg-emerald-900 text-emerald-400 border border-emerald-800 px-3 py-1 rounded-lg transition">
                                 ↗ Open in New Tab
                             </button>
                         </div>
                     </div>
 
-                    <!-- Direct Embedded Kick Live Player -->
+                    <!-- Direct Embedded Live Player (Kick IVS & Twitch Embed) -->
                     <div class="relative w-full aspect-video rounded-xl overflow-hidden bg-black border border-gray-800 shadow-2xl flex items-center justify-center">
                         <iframe id="live-stream-player" 
-                                src="https://player.kick.com/adinross?muted=true&autoplay=true" 
+                                src="https://player.kick.com/westcol?muted=true&autoplay=true" 
                                 class="w-full h-full border-0" 
                                 allowfullscreen 
                                 allow="autoplay; fullscreen">
@@ -138,7 +139,7 @@
                             <span class="w-2 h-2 rounded-full bg-[#53fc18]"></span>
                             <span>Direct stream playing with 0% screen lag. Click video sound icon to unmute.</span>
                         </span>
-                        <span class="text-gray-500 font-mono text-[11px]">Powered by Kick IVS Player</span>
+                        <span id="player-status-platform" class="text-gray-500 font-mono text-[11px]">Powered by Kick IVS Player</span>
                     </div>
                 </div>
             </div>
@@ -146,7 +147,6 @@
             <!-- Right: Streamer Switcher & Instant Clipping Station (4 Cols) -->
             <div class="col-span-12 lg:col-span-4 space-y-4">
                 
-                <!-- Streamer Switcher & Rate Info -->
                 <!-- Streamer Switcher & Rate Info -->
                 <div class="glass-panel rounded-2xl p-5 space-y-3">
                     <div class="flex items-center justify-between">
@@ -160,17 +160,24 @@
                     </div>
 
                     <select id="active-target-streamer" onchange="onStreamerChanged()" class="w-full bg-black/60 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white font-bold focus:outline-none focus:border-[#53fc18]">
-                        <option value="westcol">westcol 🟢 (Live)</option>
-                        <option value="adinross">adinross ⚪ (Offline)</option>
-                        <option value="xqc">xqc ⚪ (Offline)</option>
-                        <option value="tarik">tarik ⚪ (Offline)</option>
+                        <option value="westcol" data-platform="kick">🟢 [Kick] westcol (Live)</option>
                     </select>
 
+                    <!-- Platform Selector: Kick vs Twitch -->
+                    <div class="flex items-center space-x-1.5 bg-black/60 p-1 rounded-xl border border-gray-800">
+                        <button type="button" id="tab-platform-kick" onclick="setAddPlatform('kick')" class="flex-1 py-1 px-2 rounded-lg text-xs font-extrabold transition flex items-center justify-center space-x-1 bg-[#53fc18] text-black shadow">
+                            <span>🟢 Kick</span>
+                        </button>
+                        <button type="button" id="tab-platform-twitch" onclick="setAddPlatform('twitch')" class="flex-1 py-1 px-2 rounded-lg text-xs font-extrabold transition flex items-center justify-center space-x-1 text-gray-400 hover:text-white">
+                            <span>🟣 Twitch</span>
+                        </button>
+                    </div>
+
                     <!-- Add Streamer Form Directly In Target Card -->
-                    <form id="add-streamer-form" class="flex gap-2 pt-1">
+                    <form id="add-streamer-form" onsubmit="submitNewStreamer(event)" class="flex gap-2 pt-0.5">
                         <input type="text" id="streamer-input" placeholder="Add Kick channel (e.g. adinross)" 
                                class="flex-1 bg-black/50 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18]">
-                        <button type="submit" class="bg-[#53fc18] hover:bg-[#46d614] text-black font-extrabold px-3.5 py-2 rounded-xl text-xs transition">
+                        <button type="submit" id="btn-add-streamer" class="bg-[#53fc18] hover:bg-[#46d614] text-black font-extrabold px-3.5 py-2 rounded-xl text-xs transition">
                             + Add
                         </button>
                     </form>
@@ -1516,31 +1523,154 @@
             }
         }
 
-        function onStreamerChanged() {
-            const streamer = document.getElementById('active-target-streamer').value;
-            if (!streamer) return;
-            
-            document.getElementById('current-streamer-heading').innerText = streamer.toLowerCase();
-            updateLivePlayer(streamer);
-            updateRateDisplay();
-            fetchClipRule(streamer);
-            fetchCommunityClips();
+        let currentAddPlatform = 'kick';
+        let streamerCacheMap = {};
+
+        function setAddPlatform(platform) {
+            currentAddPlatform = platform;
+            const btnKick = document.getElementById('tab-platform-kick');
+            const btnTwitch = document.getElementById('tab-platform-twitch');
+            const input = document.getElementById('streamer-input');
+
+            if (platform === 'twitch') {
+                if (btnTwitch) btnTwitch.className = "flex-1 py-1 px-2 rounded-lg text-xs font-extrabold transition flex items-center justify-center space-x-1 bg-purple-600 text-white shadow";
+                if (btnKick) btnKick.className = "flex-1 py-1 px-2 rounded-lg text-xs font-extrabold transition flex items-center justify-center space-x-1 text-gray-400 hover:text-white";
+                if (input) input.placeholder = "Add Twitch channel (e.g. alanzoka, tarik, xqc)";
+            } else {
+                if (btnKick) btnKick.className = "flex-1 py-1 px-2 rounded-lg text-xs font-extrabold transition flex items-center justify-center space-x-1 bg-[#53fc18] text-black shadow";
+                if (btnTwitch) btnTwitch.className = "flex-1 py-1 px-2 rounded-lg text-xs font-extrabold transition flex items-center justify-center space-x-1 text-gray-400 hover:text-white";
+                if (input) input.placeholder = "Add Kick channel (e.g. adinross, westcol)";
+            }
         }
 
-        function updateLivePlayer(streamer) {
+        async function submitNewStreamer(e) {
+            if (e) e.preventDefault();
+            const input = document.getElementById('streamer-input');
+            let raw = input ? input.value.trim().toLowerCase() : '';
+            if (!raw) return;
+
+            let platform = currentAddPlatform;
+            let username = raw;
+            if (raw.startsWith('twitch:')) {
+                platform = 'twitch';
+                username = raw.replace('twitch:', '').trim();
+            } else if (raw.startsWith('kick:')) {
+                platform = 'kick';
+                username = raw.replace('kick:', '').trim();
+            } else if (raw.includes('twitch.tv')) {
+                platform = 'twitch';
+                username = raw.split('twitch.tv/')[1].split('/')[0].split('?')[0].trim();
+            } else if (raw.includes('kick.com')) {
+                platform = 'kick';
+                username = raw.split('kick.com/')[1].split('/')[0].split('?')[0].trim();
+            }
+
+            try {
+                showToast(`Adding [${platform.toUpperCase()}] ${username} to watchlist...`);
+                const res = await fetch('/api/streamers', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username, platform})
+                });
+                if (res.ok) {
+                    if (input) input.value = '';
+                    await fetchStreamers();
+                    const select = document.getElementById('active-target-streamer');
+                    if (select) {
+                        select.value = username;
+                        onStreamerChanged();
+                    }
+                    showToast(`✅ Added [${platform.toUpperCase()}] ${username} to watchlist!`);
+                } else {
+                    const err = await res.json().catch(() => ({}));
+                    showToast(`Failed: ${err.detail || 'Could not add streamer'}`);
+                }
+            } catch (err) {
+                console.error(err);
+                showToast(`Error adding streamer: ${err.message}`);
+            }
+        }
+
+        function onStreamerChanged() {
+            const select = document.getElementById('active-target-streamer');
+            const streamer = select ? select.value : null;
+            if (!streamer) return;
+            
+            const selectedOpt = select.options[select.selectedIndex];
+            const platform = (selectedOpt ? selectedOpt.getAttribute('data-platform') : null) || 
+                             ((streamerCacheMap[streamer] && streamerCacheMap[streamer].platform) || 'kick');
+
+            updateLivePlayer(streamer, platform);
+            updateRateDisplay();
+            fetchClipRule(streamer);
+            if (platform === 'kick') {
+                fetchCommunityClips();
+            }
+        }
+
+        function updateLivePlayer(streamer, platform = 'kick') {
             const player = document.getElementById('live-stream-player');
-            player.src = `https://player.kick.com/${streamer.toLowerCase()}?muted=true&autoplay=true`;
+            const heading = document.getElementById('current-streamer-heading');
+            const badge = document.getElementById('current-streamer-badge');
+            const statusBar = document.getElementById('player-status-platform');
+            const openBtn = document.getElementById('btn-open-stream-tab');
+
+            if (heading) heading.innerText = streamer.toLowerCase();
+
+            if (platform === 'twitch') {
+                if (badge) {
+                    badge.className = "text-[10px] px-2 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-800 font-mono";
+                    badge.innerText = "TWITCH";
+                }
+                if (statusBar) statusBar.innerText = "Powered by Twitch Interactive Player";
+                if (openBtn) {
+                    openBtn.className = "text-xs bg-purple-950 hover:bg-purple-900 text-purple-300 border border-purple-800 px-3 py-1 rounded-lg transition";
+                }
+                const host = window.location.hostname || 'localhost';
+                if (player) {
+                    player.src = `https://player.twitch.tv/?channel=${streamer.toLowerCase()}&parent=${host}&parent=localhost&parent=127.0.0.1&muted=true&autoplay=true`;
+                }
+            } else {
+                if (badge) {
+                    badge.className = "text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 font-mono";
+                    badge.innerText = "KICK";
+                }
+                if (statusBar) statusBar.innerText = "Powered by Kick IVS Player";
+                if (openBtn) {
+                    openBtn.className = "text-xs bg-emerald-950 hover:bg-emerald-900 text-emerald-400 border border-emerald-800 px-3 py-1 rounded-lg transition";
+                }
+                if (player) {
+                    player.src = `https://player.kick.com/${streamer.toLowerCase()}?muted=true&autoplay=true`;
+                }
+            }
         }
 
         function reloadPlayer() {
-            const streamer = document.getElementById('active-target-streamer').value || 'adinross';
-            updateLivePlayer(streamer);
-            showToast(`Reloaded player for ${streamer}`);
+            const select = document.getElementById('active-target-streamer');
+            const streamer = select && select.value ? select.value : 'westcol';
+            const selectedOpt = select ? select.options[select.selectedIndex] : null;
+            const platform = (selectedOpt ? selectedOpt.getAttribute('data-platform') : null) || 
+                             ((streamerCacheMap[streamer] && streamerCacheMap[streamer].platform) || 'kick');
+            updateLivePlayer(streamer, platform);
+            showToast(`Reloaded player for [${platform.toUpperCase()}] ${streamer}`);
+        }
+
+        function openExternalStream() {
+            const select = document.getElementById('active-target-streamer');
+            const streamer = select && select.value ? select.value : 'westcol';
+            const selectedOpt = select ? select.options[select.selectedIndex] : null;
+            const platform = (selectedOpt ? selectedOpt.getAttribute('data-platform') : null) || 
+                             ((streamerCacheMap[streamer] && streamerCacheMap[streamer].platform) || 'kick');
+
+            if (platform === 'twitch') {
+                window.open(`https://www.twitch.tv/${streamer}`, '_blank');
+            } else {
+                window.open(`https://kick.com/${streamer}`, '_blank');
+            }
         }
 
         function openExternalKick() {
-            const streamer = document.getElementById('active-target-streamer').value || 'adinross';
-            window.open(`https://kick.com/${streamer}`, '_blank');
+            openExternalStream();
         }
 
         async function fetchRates() {
@@ -1586,15 +1716,21 @@
                 
                 const prevVal = select.value;
                 select.innerHTML = '';
+                streamerCacheMap = {};
 
                 let liveCount = 0;
 
                 data.forEach(s => {
                     if (s.is_live) liveCount++;
+                    const platform = s.platform || (s.username && s.username.includes('twitch') ? 'twitch' : 'kick');
+                    streamerCacheMap[s.username] = { ...s, platform };
 
                     const opt = document.createElement('option');
                     opt.value = s.username;
-                    opt.innerText = `${s.username} ${s.is_live ? '🟢 (' + Number(s.viewer_count || 0).toLocaleString() + ' viewers)' : '⚪ (Offline)'}`;
+                    opt.setAttribute('data-platform', platform);
+                    const tag = platform === 'twitch' ? '🟣 [Twitch]' : '🟢 [Kick]';
+                    const viewersText = s.is_live ? `(${Number(s.viewer_count || 0).toLocaleString()} viewers)` : '(Offline)';
+                    opt.innerText = `${s.is_live ? '🟢' : '⚪'} ${tag} ${s.username} ${viewersText}`;
                     select.appendChild(opt);
                 });
 
@@ -1605,7 +1741,7 @@
                 }
 
                 const liveBadge = document.getElementById('live-pill-badge');
-                const selectedStreamerObj = data.find(s => s.username === select.value);
+                const selectedStreamerObj = streamerCacheMap[select.value];
                 if (liveBadge && selectedStreamerObj) {
                     liveBadge.className = selectedStreamerObj.is_live 
                         ? 'text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 font-mono'
@@ -1616,6 +1752,12 @@
                 const countEl = document.getElementById('active-count');
                 if (countEl) countEl.innerText = `${liveCount} Live`;
                 updateRateDisplay();
+
+                // Automatically keep Live Stream Viewport synced to current dropdown selection!
+                if (select.value) {
+                    const activePlatform = selectedStreamerObj ? selectedStreamerObj.platform : 'kick';
+                    updateLivePlayer(select.value, activePlatform);
+                }
             } catch (e) {
                 console.error("fetchStreamers error:", e);
                 setTimeout(fetchStreamers, 1000);
@@ -2229,35 +2371,7 @@
             }
         }
 
-        document.getElementById('add-streamer-form').onsubmit = async (e) => {
-            e.preventDefault();
-            const input = document.getElementById('streamer-input');
-            const username = input.value.trim().toLowerCase();
-            if (!username) return;
-            try {
-                showToast(`Adding ${username} to watchlist...`);
-                const res = await fetch('/api/streamers', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username})
-                });
-                if (res.ok) {
-                    input.value = '';
-                    await fetchStreamers();
-                    const select = document.getElementById('active-target-streamer');
-                    if (select) {
-                        select.value = username;
-                        onStreamerChanged();
-                    }
-                    showToast(`✅ Added ${username} to watchlist!`);
-                } else {
-                    showToast(`Could not add streamer ${username}`);
-                }
-            } catch (err) {
-                console.error(err);
-                showToast(`Error adding streamer: ${err.message}`);
-            }
-        };
+        document.getElementById('add-streamer-form').onsubmit = (e) => submitNewStreamer(e);
 
         function refreshClips() {
             fetchClips();

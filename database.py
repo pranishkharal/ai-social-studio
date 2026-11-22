@@ -102,6 +102,7 @@ def init_db():
     ensure_column("clips", "qc_report", "TEXT")
     ensure_column("streamers", "monitoring_enabled", "INTEGER DEFAULT 1")
     ensure_column("streamers", "monitoring_mode", "TEXT DEFAULT 'all'")
+    ensure_column("streamers", "platform", "TEXT DEFAULT 'kick'")
 
     conn.commit()
     conn.close()
@@ -117,10 +118,12 @@ def log_event(level: str, source: str, message: str):
 
 def update_streamer_status(data: dict):
     conn = get_connection()
+    data.setdefault("platform", "kick")
     conn.execute('''
-        INSERT INTO streamers (username, is_live, channel_id, chatroom_id, title, category, viewer_count, playback_url, last_checked)
-        VALUES (:username, :is_live, :channel_id, :chatroom_id, :title, :category, :viewer_count, :playback_url, :last_checked)
+        INSERT INTO streamers (username, platform, is_live, channel_id, chatroom_id, title, category, viewer_count, playback_url, last_checked)
+        VALUES (:username, :platform, :is_live, :channel_id, :chatroom_id, :title, :category, :viewer_count, :playback_url, :last_checked)
         ON CONFLICT(username) DO UPDATE SET
+            platform = COALESCE(excluded.platform, streamers.platform, 'kick'),
             is_live = excluded.is_live,
             channel_id = excluded.channel_id,
             chatroom_id = excluded.chatroom_id,

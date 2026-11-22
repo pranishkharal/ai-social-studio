@@ -81,27 +81,84 @@ class KickMonitor:
         ]
 
     def fetch_channel_info(self, username: str) -> dict:
-        """Fetches channel status, metadata, and AWS IVS playback URL directly with 0% CPU strain."""
-        url = f"https://kick.com/api/v2/channels/{username.strip().lower()}"
+        """Fetches channel status, metadata, and playback URL for Kick or Twitch directly."""
+        clean = username.strip().lower()
+        platform = "kick"
+        if clean.startswith("twitch:"):
+            platform = "twitch"
+            clean = clean[7:]
+        elif clean.startswith("kick:"):
+            platform = "kick"
+            clean = clean[5:]
+        elif "twitch.tv" in clean:
+            platform = "twitch"
+            clean = clean.split("twitch.tv/")[-1].split("/")[0].split("?")[0]
+        elif "kick.com" in clean:
+            platform = "kick"
+            clean = clean.split("kick.com/")[-1].split("/")[0].split("?")[0]
+        else:
+            # Check DB to see if this streamer was saved as Twitch
+            try:
+                from database import get_connection
+                conn = get_connection()
+                row = conn.execute("SELECT platform FROM streamers WHERE username = ?", (clean,)).fetchone()
+                conn.close()
+                if row and row["platform"] == "twitch":
+                    platform = "twitch"
+            except Exception:
+                pass
+
+        if platform == "twitch":
+            try:
+                from live_hunt import look_twitch
+                data = look_twitch(clean)
+                is_live = 1 if data.get("live") else 0
+                result = {
+                    "username": clean,
+                    "platform": "twitch",
+                    "is_live": is_live,
+                    "channel_id": None,
+                    "chatroom_id": None,
+                    "title": data.get("title", f"{clean.title()} Stream"),
+                    "category": "Gaming",
+                    "viewer_count": data.get("viewers", 0),
+                    "playback_url": f"https://www.twitch.tv/{clean}",
+                    "last_checked": datetime.now().isoformat()
+                }
+                update_streamer_status(result)
+                self.streamer_cache[clean] = result
+                return result
+            except Exception as e:
+                log_event("WARNING", "TwitchMonitor", f"Failed fetching Twitch {clean}: {e}")
+                return {
+                    "username": clean,
+                    "platform": "twitch",
+                    "is_live": 0,
+                    "channel_id": None,
+                    "chatroom_id": None,
+                    "title": "",
+                    "category": "Gaming",
+                    "viewer_count": 0,
+                    "playback_url": f"https://www.twitch.tv/{clean}",
+                    "last_checked": datetime.now().isoformat()
+                }
+
+        url = f"https://kick.com/api/v2/channels/{clean}"
         try:
             data = self._get_json(url)
 
             is_live = data.get("livestream") is not None
             livestream = data.get("livestream") or {}
 
-            # Playback URL: the livestream endpoint is the reliable
-            # source; fall back to the channel payload's copy when
-            # it happens to be present (Kick still returns it
-            # sometimes) so a livestream-endpoint hiccup does not
-            # leave a live stream unrecordable.
             playback_url = None
             if is_live:
-                playback_url = self.fetch_playback_url(username)
+                playback_url = self.fetch_playback_url(clean)
                 if not playback_url:
                     playback_url = data.get("playback_url")
 
             result = {
-                "username": username.lower(),
+                "username": clean,
+                "platform": "kick",
                 "is_live": 1 if is_live else 0,
                 "channel_id": data.get("id"),
                 "chatroom_id": data.get("chatroom", {}).get("id"),
@@ -112,13 +169,14 @@ class KickMonitor:
                 "last_checked": datetime.now().isoformat()
             }
             update_streamer_status(result)
-            self.streamer_cache[username.lower()] = result
+            self.streamer_cache[clean] = result
             return result
         except Exception as e:
             # Handle rate-limit or offline errors gracefully
-            log_event("WARNING", "KickMonitor", f"Failed fetching {username}: {e}")
+            log_event("WARNING", "KickMonitor", f"Failed fetching {clean}: {e}")
             return {
-                "username": username.lower(),
+                "username": clean,
+                "platform": "kick",
                 "is_live": 0,
                 "channel_id": None,
                 "chatroom_id": None,
@@ -302,8 +360,41 @@ class KickMonitor:
         # If live stream playback URL is known, we can fetch the latest slice directly via FFmpeg
         info = self.streamer_cache.get(username) or self.fetch_channel_info(username)
         playback_url = info.get("playback_url")
+
+        is_twitch = info.get("platform") == "twitch" or (playback_url and "twitch.tv" in str(playback_url))
+        if is_twitch:
+            try:
+                m3u8_proc = subprocess.run(
+                    [sys.executable, "-m", "yt_dlp", "--no-warnings", "-g", f"https://www.twitch.tv/{username}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+                )
+                if m3u8_proc.returncode == 0 and m3u8_proc.stdout.strip():
+                    twitch_m3u8 = m3u8_proc.stdout.strip().split("\n")[-1]
+                    cmd = [
+                        "ffmpeg", "-y",
+                        "-i", twitch_m3u8,
+                        "-t", str(duration_seconds),
+                        "-c", "copy",
+                        output_clip_path
+                    ]
+                    subprocess.run(
+                        cmd,
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                        timeout=duration_seconds + 25
+                    )
+                    if os.path.exists(output_clip_path) and os.path.getsize(output_clip_path) > 10000:
+                        log_event("INFO", "TwitchMonitor", f"Successfully extracted {duration_seconds}s Twitch clip for {username}")
+                        return output_clip_path
+            except Exception as e:
+                log_event("ERROR", "TwitchMonitor", f"Direct Twitch extraction failed for {username}: {e}")
         
-        if playback_url:
+        elif playback_url:
             # IVS needs Referer + browser UA headers (see _ivs_input_args).
             cmd = [
                 "ffmpeg", "-y",
