@@ -307,16 +307,16 @@ class ClipPipeline:
 
         try:
             # 3. Transcribe dialogue with Whisper (PG sanitized)
-            # Only run Whisper when auto_captions or silence_trim is requested,
+            # Only run Whisper when auto_captions is requested,
             # saving 30-45s of CPU compute on low-end devices when captions are disabled.
-            if auto_captions or silence_trim:
+            if auto_captions:
                 log_event("INFO", "Pipeline", f"Transcribing audio with Whisper for clip #{clip_id}")
                 transcript_data = self.ai.transcribe_clip(
                     raw_clip_path, streamer=streamer, game=game)
                 transcript_text = transcript_data.get("full_text", "")
                 words = transcript_data.get("words", [])
             else:
-                log_event("INFO", "Pipeline", f"Skipping Whisper transcription (captions disabled for speed) for clip #{clip_id}")
+                log_event("INFO", "Pipeline", f"Skipping Whisper transcription (clean mode / captions off) for clip #{clip_id}")
                 transcript_data = {"full_text": "", "words": []}
                 transcript_text = ""
                 words = []

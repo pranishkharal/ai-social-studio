@@ -681,12 +681,14 @@ async def convert_kick_clip(req: ConvertKickClipReq, background_tasks: Backgroun
                 log_event("ERROR", "KickCommunity", f"Failed to download Kick clip: {p.stderr.decode('utf-8', 'replace')}")
                 return
             
-            # Process moment through pipeline (Whisper STT + Caption Guide + 9:16 Crop)
+            # Process moment through pipeline (9:16 Crop + Hook Banner)
             log_event("INFO", "KickCommunity", f"Processing Kick clip #{req.clip_id} ({target_dur}s) through AI Social Studio...")
             pipeline.process_moment(
                 streamer=safe_streamer,
                 raw_clip_path=raw_path,
-                duration=target_dur
+                duration=target_dur,
+                custom_caption=req.title,
+                permission_confirmed=True
             )
             add_notification(
                 title=f"🎬 Kick Clip Converted: {req.title or 'Viewer Clip'}",
