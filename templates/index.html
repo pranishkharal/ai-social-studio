@@ -631,6 +631,35 @@
             </div>
 
         </div>
+        <!-- GEMINI API KEYS (bulk) -->
+        <div class="glass-panel rounded-2xl p-5 space-y-4">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                    <h2 class="text-lg font-extrabold flex items-center space-x-2">
+                        <span>🔑 Gemini API Keys</span>
+                        <span class="text-xs px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">Bulk + auto-rotate</span>
+                    </h2>
+                    <p class="text-xs text-gray-400 mt-0.5">Paste all your free Gemini keys at once — the app rotates through them automatically, cools down rate-limited keys, and drops dead ones. Keys are stored in <span class="font-mono text-gray-300">gemini_keys.json</span> on this computer only, never committed, and never shown in full.</p>
+                </div>
+                <button onclick="fetchGeminiKeys()" class="px-3 py-1.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-xs font-semibold text-gray-200 border border-gray-700 transition">Refresh</button>
+            </div>
+
+            <div id="gemini-keys-summary" class="text-xs text-gray-400">Loading Gemini keys…</div>
+
+            <div class="space-y-2">
+                <label for="gemini-keys-textarea" class="text-xs font-bold uppercase tracking-wider text-gray-400">Paste one key per line, or comma-separated</label>
+                <textarea id="gemini-keys-textarea" rows="4" placeholder="AIza...&#10;AIza...&#10;..."
+                          class="w-full bg-black/50 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#53fc18] font-mono"></textarea>
+                <div class="flex gap-2 flex-wrap">
+                    <button type="button" onclick="addGeminiKeys()" class="bg-[#53fc18] hover:bg-[#46d614] text-black font-bold px-4 py-2 rounded-xl text-xs transition">+ Add keys</button>
+                    <button type="button" onclick="testGeminiKeys()" id="btn-test-gemini-keys" class="bg-gray-800 hover:bg-gray-700 text-gray-200 font-bold px-4 py-2 rounded-xl text-xs border border-gray-700 transition">🧪 Test keys</button>
+                </div>
+                <div id="gemini-keys-message" class="hidden text-xs rounded-xl px-3 py-2"></div>
+            </div>
+
+            <div id="gemini-keys-list" class="space-y-2 text-xs"></div>
+        </div>
+
 
         <!-- Live Hunt Panel (gta6-clipper feature 14) -->
         <div class="glass-panel rounded-2xl p-4 space-y-3">
@@ -2767,6 +2796,113 @@
             });
             setTimeout(fetchClips, 3000);
         }
+        // --- Gemini API keys (bulk) ---
+        function escapeHtml(s) {
+            return String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+        }
+
+        function geminiStatusBadge(status) {
+            if (status === 'healthy') return '<span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 font-mono">healthy</span>';
+            if (status === 'cooling_down') return '<span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-950 text-amber-400 border border-amber-800 font-mono">cooling down</span>';
+            return '<span class="text-[10px] px-2 py-0.5 rounded-full bg-red-950 text-red-400 border border-red-800 font-mono">invalid</span>';
+        }
+
+        function renderGeminiKeys(data) {
+            const summary = document.getElementById('gemini-keys-summary');
+            const list = document.getElementById('gemini-keys-list');
+            if (!summary || !list) return;
+            const c = data.counts || {total: 0, healthy: 0, cooling_down: 0, invalid: 0};
+            let text = `${c.total} key${c.total === 1 ? '' : 's'} total · ${c.healthy} healthy · ${c.cooling_down} cooling down · ${c.invalid} invalid`;
+            if (data.source === 'env') text += ' · from .env (GEMINI_API_KEY)';
+            if (data.source === 'store') text += ' · from gemini_keys.json';
+            if (data.env_keys_ignored) text += ` · ${data.env_keys_ignored} .env key(s) ignored while the store has keys`;
+            summary.textContent = text;
+            if (!data.keys || data.keys.length === 0) {
+                list.innerHTML = '<div class="text-xs text-gray-500">No keys yet — paste your keys above, or set GEMINI_API_KEY in .env.</div>';
+                return;
+            }
+            list.innerHTML = data.keys.map(k => {
+                const used = k.last_used_at ? `Last used ${k.last_used_at}` : 'Never used';
+                const err = k.last_error ? `<div class="text-[11px] text-red-400/90 mt-1 break-words">${escapeHtml(k.last_error)}</div>` : '';
+                const delBtn = k.deletable
+                    ? `<button onclick="deleteGeminiKey('${k.id}')" class="px-2 py-1 rounded-lg bg-gray-800 hover:bg-red-900 text-gray-300 hover:text-white text-[11px] font-semibold border border-gray-700 transition">Delete</button>`
+                    : `<span class="text-[10px] text-gray-500" title="Env keys live in .env — edit the file to remove them">.env</span>`;
+                return `<div class="bg-black/50 border border-gray-800 rounded-xl px-3 py-2 flex items-center justify-between gap-3 flex-wrap">
+                    <div class="min-w-0">
+                        <span class="font-mono text-gray-200">${escapeHtml(k.masked)}</span>
+                        <span class="ml-2">${geminiStatusBadge(k.status)}</span>
+                        <span class="ml-2 text-gray-500">${used}</span>
+                        ${err}
+                    </div>
+                    ${delBtn}
+                </div>`;
+            }).join('');
+        }
+
+        async function fetchGeminiKeys() {
+            try {
+                const res = await fetch('/api/settings/gemini-keys');
+                renderGeminiKeys(await res.json());
+            } catch (e) {
+                const summary = document.getElementById('gemini-keys-summary');
+                if (summary) summary.textContent = 'Could not load Gemini keys.';
+            }
+        }
+
+        function showGeminiMessage(text, ok) {
+            const el = document.getElementById('gemini-keys-message');
+            if (!el) return;
+            el.textContent = text;
+            el.className = ok
+                ? 'text-xs rounded-xl px-3 py-2 bg-emerald-950/40 border border-emerald-800/60 text-emerald-300'
+                : 'text-xs rounded-xl px-3 py-2 bg-amber-950/40 border border-amber-800/60 text-amber-300';
+        }
+
+        async function addGeminiKeys() {
+            const ta = document.getElementById('gemini-keys-textarea');
+            const text = ta.value.trim();
+            if (!text) {
+                showGeminiMessage('Paste at least one key first.', false);
+                return;
+            }
+            const res = await fetch('/api/settings/gemini-keys', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({keys_text: text})
+            });
+            const data = await res.json();
+            showGeminiMessage(`Added ${data.added} key${data.added === 1 ? '' : 's'}, ${data.duplicates} duplicate${data.duplicates === 1 ? '' : 's'} skipped, ${data.invalid} invalid. Total: ${data.total}.`, data.added > 0);
+            ta.value = '';
+            fetchGeminiKeys();
+        }
+
+        async function deleteGeminiKey(keyId) {
+            if (!confirm('Delete this Gemini key?')) return;
+            await fetch(`/api/settings/gemini-keys/${keyId}`, {method: 'DELETE'});
+            fetchGeminiKeys();
+        }
+
+        async function testGeminiKeys() {
+            const btn = document.getElementById('btn-test-gemini-keys');
+            const original = btn.innerHTML;
+            btn.innerHTML = '⏳ Testing… (one small call per key)';
+            btn.disabled = true;
+            try {
+                const res = await fetch('/api/settings/gemini-keys/test', {method: 'POST'});
+                const data = await res.json();
+                const results = data.results || [];
+                const ok = results.filter(r => r.result === 'ok').length;
+                const mode = data.mode === 'format_only' ? ' (format check only — google-genai is not installed)' : '';
+                showGeminiMessage(`Tested ${results.length} key${results.length === 1 ? '' : 's'}: ${ok} working.${mode}`, ok > 0);
+                fetchGeminiKeys();
+            } catch (e) {
+                showGeminiMessage('Key test failed — is the server running?', false);
+            } finally {
+                btn.innerHTML = original;
+                btn.disabled = false;
+            }
+        }
+
 
         let modalCaptionPos = 'top';
         function selectModalCaptionPos(pos) {

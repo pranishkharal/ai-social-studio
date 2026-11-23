@@ -86,6 +86,13 @@ class APIRouter:
     def put(self, path, **kwargs):
         return self._decorator("PUT", path)
 
+    def api_route(self, path, methods=None, **kwargs):
+        def deco(func):
+            for method in (methods or ["GET"]):
+                self.routes.append((method, path, func))
+            return func
+        return deco
+
 
 class FastAPI:
     """Minimal stand-in so app modules can be imported in tests."""
@@ -96,6 +103,11 @@ class FastAPI:
 
     def include_router(self, router, **kwargs):
         self.routes.extend(getattr(router, "routes", []))
+
+    def add_middleware(self, middleware_class, *args, **kwargs):
+        # Recorded only; middleware never runs in tests.
+        self.routes.append(("MIDDLEWARE", middleware_class.__name__, None))
+        return None
 
     def mount(self, path, app, name=None):
         return None
@@ -116,6 +128,22 @@ class FastAPI:
 
     def post(self, path, **kwargs):
         return self._decorator("POST", path)
+
+    def delete(self, path, **kwargs):
+        return self._decorator("DELETE", path)
+
+    def put(self, path, **kwargs):
+        return self._decorator("PUT", path)
+
+    def patch(self, path, **kwargs):
+        return self._decorator("PATCH", path)
+
+    def api_route(self, path, methods=None, **kwargs):
+        def deco(func):
+            for method in (methods or ["GET"]):
+                self.routes.append((method, path, func))
+            return func
+        return deco
 
 
 def _make_response_class(name):
@@ -138,9 +166,20 @@ responses_stub.HTMLResponse = _make_response_class("HTMLResponse")
 responses_stub.JSONResponse = _make_response_class("JSONResponse")
 responses_stub.RedirectResponse = _make_response_class("RedirectResponse")
 responses_stub.FileResponse = _make_response_class("FileResponse")
+responses_stub.StreamingResponse = _make_response_class("StreamingResponse")
 
 staticfiles_stub = types.ModuleType("fastapi.staticfiles")
-staticfiles_stub.StaticFiles = object
+
+
+class StaticFiles:
+    """Minimal stand-in: accepts the directory kwarg the dashboard
+    passes; serving is never exercised in tests."""
+
+    def __init__(self, *args, **kwargs):
+        self.directory = kwargs.get("directory")
+
+
+staticfiles_stub.StaticFiles = StaticFiles
 
 templating_stub = types.ModuleType("fastapi.templating")
 
@@ -167,6 +206,23 @@ fastapi_stub.HTTPException = HTTPException
 fastapi_stub.Request = Request
 fastapi_stub.FastAPI = FastAPI
 fastapi_stub.BackgroundTasks = object
+
+# fastapi.middleware.gzip: the dashboard adds GZipMiddleware at import
+# time; the stub only needs to exist, it never runs in tests.
+middleware_stub = types.ModuleType("fastapi.middleware")
+gzip_stub = types.ModuleType("fastapi.middleware.gzip")
+
+
+class GZipMiddleware:
+    def __init__(self, app=None, *args, **kwargs):
+        self.app = app
+
+
+gzip_stub.GZipMiddleware = GZipMiddleware
+middleware_stub.gzip = gzip_stub
+fastapi_stub.middleware = middleware_stub
+sys.modules.setdefault("fastapi.middleware", middleware_stub)
+sys.modules.setdefault("fastapi.middleware.gzip", gzip_stub)
 sys.modules.setdefault("fastapi", fastapi_stub)
 sys.modules.setdefault("fastapi.responses", responses_stub)
 sys.modules.setdefault("fastapi.staticfiles", staticfiles_stub)

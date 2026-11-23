@@ -228,7 +228,8 @@ def test_llm_fallback_lands_on_heuristic(monkeypatch):
     import ai_story_engine
     import llm_providers
 
-    monkeypatch.setattr(ai_story_engine, "gemini_client", None)
+    # No Gemini keys at all: gemini_fn raises, local model fails too.
+    monkeypatch.setattr(ai_story_engine, "gemini_keys", None)
     monkeypatch.setattr(
         llm_providers.OpenAICompatibleClient, "generate_json",
         lambda self, prompt, **kw: (_ for _ in ()).throw(
@@ -245,7 +246,8 @@ def test_llm_fallback_uses_local_model_when_available(monkeypatch):
     import ai_story_engine
     import llm_providers
 
-    monkeypatch.setattr(ai_story_engine, "gemini_client", None)
+    # No Gemini keys at all: gemini_fn raises, local model answers.
+    monkeypatch.setattr(ai_story_engine, "gemini_keys", None)
 
     def fake_local(self, prompt, **kw):
         return {

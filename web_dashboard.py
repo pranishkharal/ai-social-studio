@@ -25,6 +25,7 @@ from database import (
     update_clip_approval, toggle_streamer_monitoring, delete_clip, add_notification, add_clip
 )
 from ai_story_engine import PRD_CATEGORIES
+from gemini_keys import get_key_manager
 from kick_monitor import KickMonitor
 from pipeline import ClipPipeline
 from screen_controller import KickScreenController
@@ -682,6 +683,46 @@ class MonitoringReq(BaseModel):
 async def toggle_streamer(username: str, req: MonitoringReq):
     toggle_streamer_monitoring(username, req.enabled)
     return {"status": "updated", "username": username, "enabled": req.enabled}
+
+
+# --- Gemini API keys (bulk) -------------------------------------------------
+# Paste many free-tier keys at once in the dashboard; the app rotates
+# through them automatically. Responses carry MASKED keys only -- a full
+# key never leaves the server. See gemini_keys.py.
+
+class GeminiKeysReq(BaseModel):
+    keys_text: str = ""
+
+@app.get("/api/settings/gemini-keys")
+async def list_gemini_keys():
+    """Masked status of every configured Gemini key + counts."""
+    return get_key_manager().get_status()
+
+@app.post("/api/settings/gemini-keys")
+async def add_gemini_keys(req: GeminiKeysReq):
+    """Parse bulk-pasted keys, add the new ones, persist to the store."""
+    result = get_key_manager().add_keys(req.keys_text or "")
+    log_event("INFO", "WebAPI",
+              f"Gemini keys added via dashboard: {result['added']} new, "
+              f"{result['duplicates']} duplicates, "
+              f"{result['invalid']} invalid (total {result['total']})")
+    return result
+
+@app.delete("/api/settings/gemini-keys/{key_id}")
+async def delete_gemini_key(key_id: str):
+    """Remove one stored key. Env-sourced keys are not deletable here
+    (they live in .env) -- deleting one returns 404."""
+    if not get_key_manager().delete_key(key_id):
+        raise HTTPException(status_code=404, detail="Key not found")
+    return {"status": "deleted", "key_id": key_id}
+
+@app.post("/api/settings/gemini-keys/test")
+async def test_gemini_keys():
+    """Validate every key with one tiny real API call each (list
+    models -- no generation tokens). Slow with many keys; the
+    dashboard warns about that. When the genai SDK is unavailable
+    the response says so and falls back to format checks."""
+    return get_key_manager().test_all_keys()
 
 
 # ---------------------------------------------------------------------------
