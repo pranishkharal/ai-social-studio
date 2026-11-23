@@ -282,6 +282,13 @@ VIDEO_LAYOUT=blurred_backdrop
 ```
 *(Note: even without an API key, the system still works 100% with the built-in local Whisper and smart heuristic engine!)*
 
+### 2b. Gemini API keys (bulk) — paste many keys, auto-rotate
+If you have several free-tier Gemini keys, paste them all at once in the dashboard: **Settings → Gemini API Keys** (or the "🔑 Gemini API Keys" panel on the main page). One key per line, or comma/semicolon separated — the app dedupes them, rejects anything that doesn't look like a key, and stores them in `gemini_keys.json` in the repo root. That file is gitignored and never committed; keys are only ever shown masked (`AIza...Ab12`), never in full.
+
+The app rotates through healthy keys automatically (round-robin, never always key 0). A key that hits a rate limit cools down for 60 seconds while the others keep working; a key that fails auth is marked invalid and never retried. Use **Test keys** in the panel to check every key with one tiny API call each (lists models — no generation tokens spent).
+
+You can also keep using `.env` instead: `GEMINI_API_KEY` accepts several keys separated by commas, semicolons, or newlines, and rotation works the same way. Note: once `gemini_keys.json` has any keys, it becomes the only source and the `.env` value is ignored until the store is emptied.
+
 ### 3. Start the system
 ```powershell
 # Windows:

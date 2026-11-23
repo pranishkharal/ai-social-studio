@@ -41,6 +41,9 @@ ENV/
 token.json
 client_secrets.json
 
+# Bulk Gemini API keys (gemini_keys.py) — pasted in the dashboard, never committed
+gemini_keys.json
+
 # Runtime-generated state (Tiers 3-4)
 checkpoints/
 face_references/

@@ -143,21 +143,24 @@ def get_whisper_model():
     _whisper_model_key = (cfg["model"], device, cfg["compute_type"])
     return model
 
-# Gemini clients pool for rotation and failover
-gemini_keys = [k.strip() for k in re.split(r"[,;\n\r]+", GEMINI_API_KEY) if k.strip()]
-gemini_clients = []
-if gemini_keys:
-    try:
-        from google import genai
-        for k in gemini_keys:
-            try:
-                gemini_clients.append(genai.Client(api_key=k))
-            except Exception as e:
-                log_event("WARNING", "AIStoryEngine", f"Gemini client init error for key: {e}")
-    except Exception as e:
-        log_event("WARNING", "AIStoryEngine", f"Google genai import error: {e}")
-
-gemini_client = gemini_clients[0] if gemini_clients else None
+# Gemini key manager (bulk keys + rotation -- see gemini_keys.py).
+# Import-safe: when the manager cannot be built, gemini_keys is None
+# and every Gemini call raises, so the heuristic fallback runs exactly
+# as before. gemini_client is a rotating stand-in for genai.Client:
+# existing callers (captions.py's optional LLM path) keep working
+# unchanged and get rotation for free.
+try:
+    from gemini_keys import (
+        GeminiUnavailableError, NoHealthyKeyError, RotatingGeminiClient,
+        get_key_manager,
+    )
+    gemini_keys = get_key_manager()
+    gemini_client = RotatingGeminiClient(gemini_keys)
+except Exception as e:
+    log_event("WARNING", "AIStoryEngine",
+              f"Gemini key manager unavailable: {e}")
+    gemini_keys = None
+    gemini_client = None
 
 # Strict Shadowban Prevention: Prestige-style Leet-Speak Sanitizer
 SHADOWBAN_REPLACEMENTS = {
@@ -277,26 +280,47 @@ class AIStoryEngine:
             streamer, category, duration, hype_score, sanitized_transcript)
 
         def gemini_fn(_prompt):
-            if not gemini_clients:
+            if gemini_keys is None or not gemini_keys.has_keys():
                 raise RuntimeError("Gemini client not configured")
-            last_err = None
-            for client in gemini_clients:
+            last_error = None
+            # One attempt per configured key at most: each attempt uses
+            # the next healthy key (round-robin), and report_failure
+            # cools down / invalidates the failed key, so the loop
+            # always terminates. The last error is raised only when no
+            # healthy key remains -- then the fallback chain proceeds
+            # to the local model and heuristics exactly as before.
+            for _ in range(max(gemini_keys.key_count(), 1)):
+                try:
+                    client, key_id = gemini_keys.get_client()
+                except GeminiUnavailableError:
+                    raise  # no SDK installed -- more attempts can't help
+                except NoHealthyKeyError:
+                    break  # every key is down; raise the last error
                 try:
                     response = client.models.generate_content(
                         model=GEMINI_MODEL,
                         contents=_prompt,
                     )
                     raw_text = response.text.strip()
-                    if raw_text.startswith("```"):
-                        raw_text = raw_text.split("```")[1]
-                        if raw_text.startswith("json"):
-                            raw_text = raw_text[4:]
-                    data = json.loads(raw_text.strip())
-                    return self._sanitize_metadata(data)
                 except Exception as e:
-                    last_err = e
-                    log_event("WARNING", "AIStoryEngine", f"Gemini request failed, trying next key: {e}")
-            raise last_err
+                    gemini_keys.report_failure(key_id, e)
+                    last_error = e
+                    continue
+                gemini_keys.report_success(key_id)
+                # Parsing happens AFTER the success report: a bad
+                # response is not the key's fault, so it must not
+                # count against the key. A parse failure propagates
+                # as before (the fallback chain catches it).
+                if raw_text.startswith("```"):
+                    raw_text = raw_text.split("```")[1]
+                    if raw_text.startswith("json"):
+                        raw_text = raw_text[4:]
+                data = json.loads(raw_text.strip())
+                return self._sanitize_metadata(data)
+            if last_error is not None:
+                raise RuntimeError(
+                    f"Gemini failed on all keys: {last_error}")
+            raise RuntimeError("Gemini client not configured")
 
         def heuristic_fn(_prompt):
             return self._heuristic_metadata(streamer, sanitized_transcript, hype_score, moment_type)
