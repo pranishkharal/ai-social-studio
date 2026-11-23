@@ -853,8 +853,14 @@ def test_process_moment_stores_post_captions(pipeline_setup):
                                  raw_clip_path=str(raw), game="GTA 6")
     assert result["status"] == "ready_to_upload"
     post = result["post_captions"]
-    assert post["best"] == ("Adinross was SHOCKED after hearing "
-                            "Chaz is not clean 😱💖")
+    # Her engine's heuristic headline carries no quoted clause, and
+    # this synthetic clip has no game terms and no on-screen text, so
+    # no specific thing exists anywhere -- the generator echoes the
+    # headline. Specificity through the real channels (game terms,
+    # on-screen text, moment templates) is covered by the sibling
+    # pipeline tests.
+    assert post["best"] == ("Adinross could NOT believe what just "
+                            "happened live 🔥💖")
     assert len(post["alternatives"]) == 4
     assert post["provider"] == "rule_based"
     # The TikTok post description is the best caption + hashtags.
@@ -938,3 +944,34 @@ def test_process_moment_stores_apology_template(pipeline_setup, monkeypatch):
     assert len(post["alternatives"]) == 4
     stored = json.loads(_clip_row(result["clip_id"])["post_captions"])
     assert stored["best"] == post["best"]
+
+
+def test_process_moment_keeps_llm_caption(pipeline_setup, monkeypatch):
+    # An LLM caption already follows the guide (the prompt teaches it
+    # the same templates), so the rule-based generator must not
+    # overwrite it: with LLM metadata the captions block is skipped
+    # and the LLM caption stays the TikTok post description.
+    pipe, raw, tmp_path, captured = pipeline_setup
+    monkeypatch.setattr(
+        pipe.ai, "analyze_story_and_generate_metadata",
+        lambda **kwargs: {
+            "category": "Viral Potential",
+            "ai_score": 85,
+            "selection_reason": "LLM picked this moment.",
+            "story_summary": "LLM story summary.",
+            "viral_title": "Adinross meets someone famous live",
+            "hook_banner": "Adinross meets someone famous live 😳",
+            "quote_line": "",
+            "tiktok_caption": "LLM guide caption #adinross #fyp #kick",
+            "youtube_title": "LLM title #Shorts",
+            "youtube_description": "LLM description.",
+            "instagram_caption": "LLM instagram.",
+            "blue_comment": "LLM blue comment.",
+            "hashtags": "#adinross #fyp #kick",
+            "llm_provider": "gemini",
+        })
+    result = pipe.process_moment("adinross", duration=10,
+                                 raw_clip_path=str(raw))
+    assert result["status"] == "ready_to_upload"
+    assert result["post_captions"] is None
+    assert result["caption"] == "LLM guide caption #adinross #fyp #kick"

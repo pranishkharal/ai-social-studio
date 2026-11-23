@@ -383,3 +383,183 @@ def scan_game_events(video_path, t0=0.0, fps=None, ocr_fn=None):
         "scan_s": round(time.time() - started, 1),
         "ocr_available": available,
     }
+
+
+# ---------------------------------------------------------------------------
+# On-screen dialogue / objective text (for the caption generator)
+# ---------------------------------------------------------------------------
+
+# How the caption generator reads the video the way Claude does: the
+# streamer may barely speak, but the game talks — GTA dialogue and
+# objective text ("Go to the crash site") sit in the bottom band of
+# the frame, and that is where "$500 STRAWBERRY farmer" came from.
+# Sampled frames are OCR'd with the same RapidOCR engine as the
+# banner scan; lines that repeat across frames are deduped.
+SCREEN_TEXT_INTERVAL_S = float(
+    os.getenv("SCREEN_TEXT_INTERVAL_S", "2.0") or 2.0)
+SCREEN_TEXT_MAX_FRAMES = int(
+    os.getenv("SCREEN_TEXT_MAX_FRAMES", "15") or 15)
+SCREEN_TEXT_MIN_CONF = float(
+    os.getenv("SCREEN_TEXT_MIN_CONF", "0.8") or 0.8)
+SCREEN_TEXT_BAND = 0.25  # bottom 25% of the frame (subtitle band)
+SCREEN_TEXT_CACHE_SIZE = 8
+
+# Phrases RapidOCR glues together at 360p ("Gotothecrashsite"):
+# repaired so the caption entity extractor can see the words.
+_SCREEN_TEXT_GLUED = {
+    "crashsite": "crash site",
+    "vicecity": "vice city",
+}
+
+_screen_text_cache = {}
+_screen_text_cache_order = []
+
+
+def clear_screen_text_cache():
+    """Empty the on-screen-text cache (tests)."""
+    _screen_text_cache.clear()
+    _screen_text_cache_order.clear()
+
+
+def _sample_times(t0, t1, interval, max_frames):
+    """Sample times in [t0, t1]: every ``interval`` s, capped at
+    ``max_frames`` evenly spaced (a long window gets spread samples
+    instead of a cut-off scan)."""
+    if t1 <= t0:
+        return [round(t0, 2)]
+    count = int((t1 - t0) / interval)
+    if count <= max_frames:
+        return [round(t0 + i * interval, 2) for i in range(max(1, count))]
+    step = (t1 - t0) / max_frames
+    return [round(t0 + step * (i + 0.5), 2) for i in range(max_frames)]
+
+
+def _unglue_screen_text(text):
+    """Repair phrases RapidOCR glues at low resolution."""
+    out = text or ""
+    for glued, fixed in _SCREEN_TEXT_GLUED.items():
+        out = re.sub(glued, fixed, out, flags=re.IGNORECASE)
+    return out
+
+
+def _clean_screen_lines(raw_lines, min_conf=SCREEN_TEXT_MIN_CONF):
+    """Filter + dedupe OCR lines -> [line].
+
+    Drops low-confidence reads (garbled fragments like "Gofothe-Gsl"
+    score ~0.75 while real subtitle text scores 0.9+) and lines
+    without letters, repairs glued phrases, and dedupes by
+    normalized text — the same subtitle repeats across frames, and
+    when two reads of one line differ the one with more spaces wins
+    ("Go to the crash site" over "Gotothe crash site").
+    """
+    best = {}
+    for text, conf in raw_lines:
+        if float(conf) < min_conf:
+            continue
+        line = _unglue_screen_text(
+            re.sub(r"\s+", " ", (text or "")).strip())
+        if len(line) < 3:
+            continue
+        if not any(ch.isalpha() for ch in line):
+            continue
+        norm = re.sub(r"[^a-z0-9]+", "", line.lower())
+        if not norm:
+            continue
+        if norm not in best or line.count(" ") > best[norm].count(" "):
+            best[norm] = line
+    return list(best.values())
+
+
+def _screen_text_cache_key(path, t0, t1):
+    try:
+        st = os.stat(str(path))
+        return (os.path.abspath(str(path)), st.st_mtime_ns, st.st_size,
+                round(float(t0), 1), round(float(t1), 1))
+    except (OSError, ValueError):
+        return None
+
+
+def read_screen_text(video_path, t0=0.0, t1=None, interval=None,
+                     ocr_fn=None, use_cache=True):
+    """Read the on-screen dialogue + objective text in a clip window.
+
+    Samples frames every ~2 s (at most SCREEN_TEXT_MAX_FRAMES),
+    OCRs the bottom 25% of each frame — the subtitle band where GTA
+    dialogue and objective text appear — and returns
+    {"text", "lines", "frames_ocr", "sampled", "scan_s"}.
+
+    Best effort: a missing file, missing OpenCV or a missing OCR
+    engine returns empty text instead of raising, so the caption
+    generator falls back to transcript-only captions. Results are
+    cached per (file, window), so a clip is OCR'd once, not on every
+    read. ``ocr_fn`` is an injectable OCR callable (image ->
+    [(box, text, conf)]) so tests can run without the RapidOCR
+    package.
+    """
+    started = time.time()
+    empty = {"text": "", "lines": [], "frames_ocr": 0, "sampled": 0,
+             "scan_s": 0.0}
+    if not os.path.exists(str(video_path)):
+        return dict(empty)
+    try:
+        import cv2
+    except ImportError:
+        return dict(empty)
+    try:
+        cap = cv2.VideoCapture(str(video_path))
+    except Exception:
+        return dict(empty)
+    if not cap.isOpened():
+        return dict(empty)
+    try:
+        video_fps = cap.get(cv2.CAP_PROP_FPS) or 30
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+        duration = frame_count / video_fps if frame_count else 0.0
+        start = max(0.0, float(t0))
+        end = float(t1) if t1 is not None else duration
+        if end <= 0:
+            end = duration
+        if end <= start:
+            return dict(empty)
+        key = _screen_text_cache_key(video_path, start, end)
+        if use_cache and key is not None and key in _screen_text_cache:
+            return dict(_screen_text_cache[key])
+        times = _sample_times(start, end,
+                              interval or SCREEN_TEXT_INTERVAL_S,
+                              SCREEN_TEXT_MAX_FRAMES)
+        ocr = ocr_fn or run_ocr
+        raw_lines = []
+        frames_ocr = 0
+        prev_band = None
+        for t in times:
+            cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
+            ok, frame = cap.read()
+            if not ok:
+                continue
+            height = frame.shape[0]
+            band = frame[int(height * (1 - SCREEN_TEXT_BAND)):, :]
+            small = cv2.resize(band, (80, 24)).astype(np.int16)
+            if (prev_band is not None
+                    and np.abs(small - prev_band).mean() <= 6):
+                continue  # subtitle band unchanged: same lines already read
+            for _box, text, conf in ocr(band):
+                raw_lines.append((text, conf))
+            frames_ocr += 1
+            prev_band = small
+        lines = _clean_screen_lines(raw_lines)
+        result = {"text": " ".join(lines), "lines": lines,
+                  "frames_ocr": frames_ocr, "sampled": len(times),
+                  "scan_s": round(time.time() - started, 1)}
+        if use_cache and key is not None:
+            _screen_text_cache[key] = result
+            _screen_text_cache_order.append(key)
+            while len(_screen_text_cache_order) > SCREEN_TEXT_CACHE_SIZE:
+                old = _screen_text_cache_order.pop(0)
+                _screen_text_cache.pop(old, None)
+        return dict(result)
+    except Exception:
+        # Best effort: any read/OCR failure means transcript-only
+        # captions, never a failed clip.
+        return dict(empty)
+    finally:
+        cap.release()

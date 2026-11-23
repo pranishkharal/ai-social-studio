@@ -100,6 +100,7 @@ def init_db():
     ensure_column("clips", "detected_streamers", "TEXT")
     ensure_column("clips", "quote_line", "TEXT")
     ensure_column("clips", "qc_report", "TEXT")
+    ensure_column("clips", "post_captions", "TEXT")
     ensure_column("streamers", "monitoring_enabled", "INTEGER DEFAULT 1")
     ensure_column("streamers", "monitoring_mode", "TEXT DEFAULT 'all'")
     ensure_column("streamers", "platform", "TEXT DEFAULT 'kick'")
@@ -169,7 +170,8 @@ def update_clip_status(clip_id: int, status: str, edited_path: str = None, title
                        ai_score: int = None, selection_reason: str = None,
                        youtube_title: str = None, youtube_description: str = None,
                        instagram_caption: str = None, approval_status: str = None,
-                       detected_streamers: str = None, qc_report: str = None):
+                       detected_streamers: str = None, qc_report: str = None,
+                       post_captions: str = None):
     conn = get_connection()
     updates = ["status = ?"]
     params = [status]
@@ -225,6 +227,9 @@ def update_clip_status(clip_id: int, status: str, edited_path: str = None, title
     if qc_report:
         updates.append("qc_report = ?")
         params.append(qc_report)
+    if post_captions:
+        updates.append("post_captions = ?")
+        params.append(post_captions)
 
     params.append(clip_id)
     query = f"UPDATE clips SET {', '.join(updates)} WHERE id = ?"
