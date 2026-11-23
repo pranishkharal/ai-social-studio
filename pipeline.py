@@ -353,6 +353,8 @@ class ClipPipeline:
                 speaker_segments=speaker_segments,
                 trajectories=trajectories,
                 split_speakers=split_speakers,
+                moment_type=moment_type,
+                ocr_events=eval_result.get("ocr_events"),
                 # Short clips are already a tight window around the peak:
                 # silence trimming would collapse sparse-speech moments
                 # (a 12 s window with 12 words cut down to 3.6 s in the
@@ -376,7 +378,8 @@ class ClipPipeline:
                      clip_format=None, theme=None, meme_mood=None,
                      meme_at=None, format_options=None,
                      speaker_segments=None, trajectories=None,
-                     split_speakers=None) -> dict:
+                     split_speakers=None, moment_type=None,
+                     ocr_events=None) -> dict:
         """Steps 5-8 of the pipeline: subtitles, render, DB update, notify.
 
         Shared by process_moment (fresh clips) and resume_clip (failed
@@ -448,6 +451,65 @@ class ClipPipeline:
                 tiktok_caption = compose_post_caption(viral_title, streamer, game)
             except Exception as e:
                 log_event("WARNING", "Pipeline", f"Game hashtag failed for clip #{clip_id}: {e}")
+
+        # Guide-driven post captions (captions.py): the best caption
+        # becomes the TikTok post description (with the hashtags
+        # above); the best pick + 4 alternatives + reasons are stored
+        # with the clip for the dashboard. These are POST captions
+        # (the text under the video), not on-screen text -- nothing
+        # here draws on the video. The title-based caption above stays
+        # as the fallback when caption generation fails.
+        #
+        # Only when the metadata came from the heuristic fallback: an
+        # LLM caption (Gemini / local model) already follows the
+        # caption guide -- the prompt teaches it the same templates --
+        # so the rule-based generator must not overwrite it. The
+        # rule-based captions are the no-key path.
+        #
+        # On-screen text is read lazily here, only when the block
+        # runs: the streamer may barely speak (and this pipeline
+        # skips Whisper when captions are off), while the game says
+        # everything -- GTA dialogue + objectives read off the frames
+        # (game_ocr.read_screen_text). A failure just means
+        # transcript-only captions. Same for the transcript itself:
+        # when Whisper was skipped upstream, transcribe here so the
+        # generator has words to work with (LLM clips never reach
+        # this block, so the Whisper skip still holds for them).
+        post_captions = None
+        post_captions_json = ""
+        if metadata.get("llm_provider", "heuristic") == "heuristic":
+            if not transcript_text:
+                try:
+                    transcript_data = self.ai.transcribe_clip(
+                        raw_clip_path, streamer=streamer, game=game)
+                    transcript_text = transcript_data.get("full_text", "")
+                except Exception as e:
+                    log_event("WARNING", "Pipeline",
+                              f"Caption transcription failed for clip #{clip_id}: {e}")
+            on_screen_text = ""
+            try:
+                from game_ocr import read_screen_text
+                on_screen_text = read_screen_text(
+                    raw_clip_path).get("text", "") or ""
+            except Exception as e:
+                log_event("WARNING", "Pipeline",
+                          f"On-screen text failed for clip #{clip_id}: {e}")
+            try:
+                from captions import generate_captions
+                from story_headlines import compose_post_caption as _compose
+                post_captions = generate_captions({
+                    "streamer": streamer, "game": game,
+                    "transcript": transcript_text, "headline": viral_title,
+                    "moment_type": moment_type, "ocr_hits": ocr_events,
+                    "category": category, "on_screen_text": on_screen_text,
+                })
+                if post_captions and post_captions.get("best"):
+                    tiktok_caption = _compose(post_captions["best"],
+                                              streamer, game)
+                    post_captions_json = json.dumps(post_captions)
+            except Exception as e:
+                log_event("WARNING", "Pipeline",
+                          f"Post captions failed for clip #{clip_id}: {e}")
 
         # PRD Section 8 Automatic Highlight Filtering
         if ai_score >= 80:
@@ -665,6 +727,7 @@ class ClipPipeline:
             approval_status=approval_status,
             detected_streamers=json.dumps(detected_streamers),
             qc_report=qc_json,
+            post_captions=post_captions_json,
         )
 
         # 8. In-App Notification (PRD Section 13) + external alerts (Tier 4)
@@ -694,6 +757,7 @@ class ClipPipeline:
             "hook_banner": hook_banner,
             "quote_line": quote_line,
             "caption": tiktok_caption,
+            "post_captions": post_captions,
             "youtube_title": youtube_title,
             "youtube_description": youtube_description,
             "instagram_caption": instagram_caption,
